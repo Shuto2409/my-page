@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>My Dashboard</title>
+    <style>
+      html, body { height: 100%; margin: 0; background: #EFECE3; }
+      #root { min-height: 100%; display: flex; align-items: flex-start; justify-content: center; padding: 24px 16px; box-sizing: border-box; }
+      #root > div { width: 100%; max-width: 1180px; }
+      @media (max-width: 600px) { #root { padding: 0; } }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
