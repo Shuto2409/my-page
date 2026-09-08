@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
   ChevronLeft,
   ChevronRight,
@@ -51,6 +51,8 @@ const MOODS = {
 };
 
 const WEEKDAYS = ["月", "火", "水", "木", "金", "土", "日"];
+const ROW_HEIGHT = 44;
+const HOUR_MARKS = Array.from({ length: 24 }, (_, i) => i);
 
 const NAV_ITEMS_BASE = [
   { key: "home", label: "ホーム", icon: Home },
@@ -298,7 +300,9 @@ export default function PersonalDashboard() {
 /* ============================= HOME ============================= */
 
 function HomeView({ tasks, setTasks, assignments, onUnlockWork, codeError, hasCode }) {
+  const [calMode, setCalMode] = useState("month");
   const [monthAnchor, setMonthAnchor] = useState(() => new Date());
+  const [weekAnchor, setWeekAnchor] = useState(() => new Date());
   const [selectedDate, setSelectedDate] = useState(() => toDateKey(new Date()));
   const [viewMode, setViewMode] = useState("day");
   const [formOpen, setFormOpen] = useState(false);
@@ -310,6 +314,13 @@ function HomeView({ tasks, setTasks, assignments, onUnlockWork, codeError, hasCo
   const [formRepeatEnd, setFormRepeatEnd] = useState("");
   const [lockOpen, setLockOpen] = useState(false);
   const [codeInput, setCodeInput] = useState("");
+  const weekScrollRef = useRef(null);
+
+  useEffect(() => {
+    if (calMode === "week" && weekScrollRef.current) {
+      weekScrollRef.current.scrollTop = 6 * ROW_HEIGHT;
+    }
+  }, [calMode]);
 
   const today = new Date();
   const todayKey = toDateKey(today);
@@ -378,6 +389,18 @@ function HomeView({ tasks, setTasks, assignments, onUnlockWork, codeError, hasCo
   );
 
   const weeks = useMemo(() => buildMonthMatrix(monthAnchor), [monthAnchor]);
+  const weekDays = useMemo(() => {
+    const mon = mondayOf(weekAnchor);
+    return Array.from({ length: 7 }, (_, i) => addDays(mon, i));
+  }, [weekAnchor]);
+  function formatWeekLabel(anchor) {
+    const mon = mondayOf(anchor);
+    const sun = addDays(mon, 6);
+    const sameMonth = mon.getMonth() === sun.getMonth();
+    return sameMonth
+      ? `${mon.getFullYear()}年 ${mon.getMonth() + 1}月${mon.getDate()}日〜${sun.getDate()}日`
+      : `${mon.getMonth() + 1}月${mon.getDate()}日〜${sun.getMonth() + 1}月${sun.getDate()}日`;
+  }
 
   const upcomingGrouped = useMemo(() => {
     const dates = Object.keys(tasksByDate)
@@ -392,8 +415,15 @@ function HomeView({ tasks, setTasks, assignments, onUnlockWork, codeError, hasCo
 
   function goToday() {
     setMonthAnchor(new Date());
+    setWeekAnchor(new Date());
     setSelectedDate(todayKey);
     setViewMode("day");
+  }
+  function prevWeek() {
+    setWeekAnchor((a) => addDays(a, -7));
+  }
+  function nextWeek() {
+    setWeekAnchor((a) => addDays(a, 7));
   }
   function pickDate(d) {
     setSelectedDate(toDateKey(d));
@@ -480,48 +510,162 @@ function HomeView({ tasks, setTasks, assignments, onUnlockWork, codeError, hasCo
       <div className="pd-main">
         <div>
           <div className="pd-cal-header">
-            <div className="pd-cal-title">{formatMonthLabel(monthAnchor)}</div>
+            <div className="pd-cal-title">
+              {calMode === "month" ? formatMonthLabel(monthAnchor) : formatWeekLabel(weekAnchor)}
+            </div>
             <div className="pd-cal-nav">
-              <button className="pd-today-btn" onClick={goToday}>今日</button>
-              <button className="pd-icon-btn" aria-label="前の月" onClick={() => setMonthAnchor((a) => new Date(a.getFullYear(), a.getMonth() - 1, 1))}>
-                <ChevronLeft size={16} />
-              </button>
-              <button className="pd-icon-btn" aria-label="次の月" onClick={() => setMonthAnchor((a) => new Date(a.getFullYear(), a.getMonth() + 1, 1))}>
-                <ChevronRight size={16} />
-              </button>
+              <div className="pd-tabs" style={{ marginRight: 8 }}>
+                <button className={"pd-tab" + (calMode === "month" ? " active" : "")} onClick={() => setCalMode("month")}>月</button>
+                <button className={"pd-tab" + (calMode === "week" ? " active" : "")} onClick={() => setCalMode("week")}>週</button>
+              </div>
+              {calMode === "month" ? (
+                <>
+                  <button className="pd-today-btn" onClick={goToday}>今日</button>
+                  <button className="pd-icon-btn" aria-label="前の月" onClick={() => setMonthAnchor((a) => new Date(a.getFullYear(), a.getMonth() - 1, 1))}>
+                    <ChevronLeft size={16} />
+                  </button>
+                  <button className="pd-icon-btn" aria-label="次の月" onClick={() => setMonthAnchor((a) => new Date(a.getFullYear(), a.getMonth() + 1, 1))}>
+                    <ChevronRight size={16} />
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button className="pd-today-btn" onClick={goToday}>今週</button>
+                  <button className="pd-icon-btn" aria-label="前の週" onClick={prevWeek}>
+                    <ChevronLeft size={16} />
+                  </button>
+                  <button className="pd-icon-btn" aria-label="次の週" onClick={nextWeek}>
+                    <ChevronRight size={16} />
+                  </button>
+                </>
+              )}
             </div>
           </div>
 
-          <div className="pd-weekday-row">
-            {WEEKDAYS.map((w) => (
-              <div key={w} className="pd-weekday">{w}</div>
-            ))}
-          </div>
+          {calMode === "month" && (
+            <>
+              <div className="pd-weekday-row">
+                {WEEKDAYS.map((w) => (
+                  <div key={w} className="pd-weekday">{w}</div>
+                ))}
+              </div>
 
-          <div className="pd-cal-grid">
-            {weeks.flat().map((d, i) => {
-              const key = toDateKey(d);
-              const inMonth = d.getMonth() === monthAnchor.getMonth();
-              const dayTasks = tasksByDate[key] || [];
-              const dayAssign = assignByDate[key] || [];
-              const cats = [...new Set(dayTasks.map((t) => t.category))];
-              return (
-                <div
-                  key={i}
-                  className={"pd-cell" + (inMonth ? "" : " out") + (key === todayKey ? " today" : "") + (key === selectedDate ? " selected" : "")}
-                  onClick={() => pickDate(d)}
-                >
-                  <div className="pd-cell-num">{d.getDate()}</div>
-                  <div className="pd-cell-dots">
-                    {cats.slice(0, 3).map((c) => (
-                      <span key={c} className="pd-dot" style={{ background: CATEGORIES[c].color }} />
+              <div className="pd-cal-grid">
+                {weeks.flat().map((d, i) => {
+                  const key = toDateKey(d);
+                  const inMonth = d.getMonth() === monthAnchor.getMonth();
+                  const dayTasks = tasksByDate[key] || [];
+                  const dayAssign = assignByDate[key] || [];
+                  const cats = [...new Set(dayTasks.map((t) => t.category))];
+                  return (
+                    <div
+                      key={i}
+                      className={"pd-cell" + (inMonth ? "" : " out") + (key === todayKey ? " today" : "") + (key === selectedDate ? " selected" : "")}
+                      onClick={() => pickDate(d)}
+                    >
+                      <div className="pd-cell-num">{d.getDate()}</div>
+                      <div className="pd-cell-dots">
+                        {cats.slice(0, 3).map((c) => (
+                          <span key={c} className="pd-dot" style={{ background: CATEGORIES[c].color }} />
+                        ))}
+                        {dayAssign.length > 0 && <span className="pd-dot" style={{ background: "var(--pd-purple)" }} />}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+
+          {calMode === "week" && (
+            <div className="pd-week-tg">
+              <div className="pd-week-tg-row pd-week-tg-headerrow">
+                <div className="pd-week-tg-cornercell" />
+                {weekDays.map((d, i) => {
+                  const key = toDateKey(d);
+                  return (
+                    <div
+                      key={i}
+                      className={"pd-week-tg-daycell" + (key === todayKey ? " today" : "") + (key === selectedDate ? " selected" : "")}
+                      onClick={() => pickDate(d)}
+                    >
+                      <div className="pd-week-tg-daylabel">{WEEKDAYS[i]}</div>
+                      <div className="pd-week-tg-daynum">{d.getDate()}</div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="pd-week-tg-row pd-week-tg-alldayrow">
+                <div className="pd-week-tg-cornercell small">終日</div>
+                {weekDays.map((d, i) => {
+                  const key = toDateKey(d);
+                  const allDayTasks = (tasksByDate[key] || []).filter((t) => !t.time);
+                  const dayAssign = assignByDate[key] || [];
+                  return (
+                    <div key={i} className="pd-week-tg-alldaycell" onClick={() => pickDate(d)}>
+                      {dayAssign.map((a) => (
+                        <div key={a.id} className="pd-week-chip assign">
+                          <span className="pd-dot" style={{ background: "var(--pd-purple)" }} />
+                          {a.title}
+                        </div>
+                      ))}
+                      {allDayTasks.map((t) => (
+                        <div key={t.id} className={"pd-week-chip" + (t.done ? " done" : "")}>
+                          <span className="pd-dot" style={{ background: CATEGORIES[t.category].color }} />
+                          {t.title}
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="pd-week-tg-scroll" ref={weekScrollRef}>
+                <div className="pd-week-tg-body">
+                  <div className="pd-week-tg-hourlabels">
+                    {HOUR_MARKS.map((h) => (
+                      <div key={h} className="pd-week-tg-hourlabel" style={{ height: ROW_HEIGHT }}>
+                        {h}:00
+                      </div>
                     ))}
-                    {dayAssign.length > 0 && <span className="pd-dot" style={{ background: "var(--pd-purple)" }} />}
                   </div>
+                  {weekDays.map((d, i) => {
+                    const key = toDateKey(d);
+                    const timedTasks = (tasksByDate[key] || []).filter((t) => t.time);
+                    return (
+                      <div
+                        key={i}
+                        className={"pd-week-tg-daycol" + (key === todayKey ? " today" : "")}
+                        style={{
+                          height: 24 * ROW_HEIGHT,
+                          backgroundImage: `repeating-linear-gradient(to bottom, var(--pd-line) 0px, var(--pd-line) 1px, transparent 1px, transparent ${ROW_HEIGHT}px)`,
+                        }}
+                        onClick={() => pickDate(d)}
+                      >
+                        {timedTasks.map((t) => {
+                          const [hh, mm] = t.time.split(":").map(Number);
+                          const top = (hh + mm / 60) * ROW_HEIGHT;
+                          const cat = CATEGORIES[t.category] || CATEGORIES.work;
+                          return (
+                            <div
+                              key={t.id}
+                              className={"pd-week-tg-event" + (t.done ? " done" : "")}
+                              style={{ top, background: cat.color }}
+                              title={`${t.time} ${t.title}`}
+                            >
+                              <span className="pd-week-tg-event-time">{t.time}</span>
+                              <span>{t.title}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
                 </div>
-              );
-            })}
-          </div>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="pd-list-section">
@@ -1397,6 +1541,39 @@ function GlobalStyle() {
       .pd-cell.selected { box-shadow: inset 0 0 0 1.5px var(--pd-ink); }
       .pd-cell-num { font-size: 12.5px; font-weight: 500; }
       .pd-cell-dots { display: flex; gap: 3px; flex-wrap: wrap; }
+
+      .pd-week-tg { border: 1px solid var(--pd-line); border-radius: 10px; overflow: hidden; background: var(--pd-surface); }
+      .pd-week-tg-row { display: grid; grid-template-columns: 46px repeat(7, 1fr); }
+      .pd-week-tg-headerrow { border-bottom: 1px solid var(--pd-line); }
+      .pd-week-tg-cornercell { border-right: 1px solid var(--pd-line); }
+      .pd-week-tg-cornercell.small { font-size: 9.5px; color: var(--pd-ink-muted); display: flex; align-items: center; justify-content: center; text-align: center; }
+      .pd-week-tg-daycell { text-align: center; padding: 8px 2px; cursor: pointer; border-right: 1px solid var(--pd-line); }
+      .pd-week-tg-daycell:last-child { border-right: none; }
+      .pd-week-tg-daycell.today { background: var(--pd-teal-soft); }
+      .pd-week-tg-daycell.selected { box-shadow: inset 0 0 0 1.5px var(--pd-ink); }
+      .pd-week-tg-daylabel { font-size: 10.5px; color: var(--pd-ink-muted); }
+      .pd-week-tg-daynum { font-size: 15px; font-weight: 600; margin-top: 2px; }
+
+      .pd-week-tg-alldayrow { border-bottom: 1px solid var(--pd-line); min-height: 30px; }
+      .pd-week-tg-alldaycell { border-right: 1px solid var(--pd-line); padding: 4px; display: flex; flex-direction: column; gap: 3px; cursor: pointer; }
+      .pd-week-tg-alldaycell:last-child { border-right: none; }
+
+      .pd-week-tg-scroll { max-height: 460px; overflow-y: auto; }
+      .pd-week-tg-body { display: grid; grid-template-columns: 46px repeat(7, 1fr); }
+      .pd-week-tg-hourlabels { border-right: 1px solid var(--pd-line); }
+      .pd-week-tg-hourlabel { font-size: 9.5px; color: var(--pd-ink-muted); text-align: right; padding-right: 6px; box-sizing: border-box; border-top: 1px solid var(--pd-line); }
+      .pd-week-tg-hourlabel:first-child { border-top: none; }
+
+      .pd-week-tg-daycol { position: relative; border-right: 1px solid var(--pd-line); cursor: pointer; }
+      .pd-week-tg-daycol:last-child { border-right: none; }
+      .pd-week-tg-daycol.today { background: var(--pd-teal-soft); }
+      .pd-week-tg-event { position: absolute; left: 2px; right: 2px; font-size: 10.5px; color: white; border-radius: 4px; padding: 1px 5px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; height: 20px; display: flex; align-items: center; gap: 5px; z-index: 2; }
+      .pd-week-tg-event.done { opacity: 0.5; text-decoration: line-through; }
+      .pd-week-tg-event-time { font-weight: 600; flex-shrink: 0; }
+
+      .pd-week-chip { display: flex; align-items: center; gap: 4px; font-size: 10.5px; padding: 3px 5px; border-radius: 5px; background: var(--pd-bg); overflow: hidden; }
+      .pd-week-chip.done { opacity: 0.5; text-decoration: line-through; }
+      .pd-week-chip.assign { background: var(--pd-purple-soft); color: var(--pd-purple); font-weight: 500; }
 
       .pd-list-section { border-top: 1px solid var(--pd-line); padding-top: 18px; }
       .pd-list-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; flex-wrap: wrap; gap: 10px; }
