@@ -19,6 +19,7 @@ import {
   TrendingUp,
   List,
   BarChart3,
+  Repeat,
 } from "lucide-react";
 import {
   BarChart,
@@ -110,6 +111,33 @@ function buildMonthMatrix(anchor) {
 }
 function uid() {
   return `id_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+const REPEAT_LABELS = { none: "なし", daily: "毎日", weekly: "毎週", monthly: "毎月" };
+const REPEAT_CAPS = { daily: 60, weekly: 26, monthly: 12 };
+const REPEAT_CAP_LABELS = { daily: "60日", weekly: "26週", monthly: "12ヶ月" };
+
+function addMonths(d, n) {
+  const r = new Date(d);
+  r.setMonth(r.getMonth() + n);
+  return r;
+}
+
+function generateOccurrences(startKey, type, endKey) {
+  if (type === "none") return [startKey];
+  const start = parseDateKey(startKey);
+  const hardEnd = endKey ? parseDateKey(endKey) : null;
+  const cap = REPEAT_CAPS[type] || 12;
+  const dates = [];
+  let cursor = new Date(start);
+  for (let i = 0; i < cap; i++) {
+    if (hardEnd && cursor > hardEnd) break;
+    dates.push(toDateKey(cursor));
+    if (type === "daily") cursor = addDays(cursor, 1);
+    else if (type === "weekly") cursor = addDays(cursor, 7);
+    else if (type === "monthly") cursor = addMonths(cursor, 1);
+  }
+  return dates;
 }
 
 /* ---- persistence hooks ---- */
@@ -278,6 +306,8 @@ function HomeView({ tasks, setTasks, assignments, onUnlockWork, codeError, hasCo
   const [formDate, setFormDate] = useState(() => toDateKey(new Date()));
   const [formTime, setFormTime] = useState("");
   const [formCategory, setFormCategory] = useState("work");
+  const [formRepeat, setFormRepeat] = useState("none");
+  const [formRepeatEnd, setFormRepeatEnd] = useState("");
   const [lockOpen, setLockOpen] = useState(false);
   const [codeInput, setCodeInput] = useState("");
 
@@ -286,14 +316,32 @@ function HomeView({ tasks, setTasks, assignments, onUnlockWork, codeError, hasCo
 
   const addTask = useCallback(() => {
     if (!formTitle.trim()) return;
-    setTasks((prev) => [
-      ...prev,
-      { id: uid(), title: formTitle.trim(), date: formDate, time: formTime, category: formCategory, done: false },
-    ]);
+    if (formRepeat === "none") {
+      setTasks((prev) => [
+        ...prev,
+        { id: uid(), title: formTitle.trim(), date: formDate, time: formTime, category: formCategory, done: false },
+      ]);
+    } else {
+      const seriesId = uid();
+      const dates = generateOccurrences(formDate, formRepeat, formRepeatEnd || null);
+      const newTasks = dates.map((d) => ({
+        id: uid(),
+        seriesId,
+        repeat: formRepeat,
+        title: formTitle.trim(),
+        date: d,
+        time: formTime,
+        category: formCategory,
+        done: false,
+      }));
+      setTasks((prev) => [...prev, ...newTasks]);
+    }
     setFormTitle("");
     setFormTime("");
+    setFormRepeat("none");
+    setFormRepeatEnd("");
     setFormOpen(false);
-  }, [formTitle, formDate, formTime, formCategory, setTasks]);
+  }, [formTitle, formDate, formTime, formCategory, formRepeat, formRepeatEnd, setTasks]);
 
   const toggleDone = useCallback((id) => {
     setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, done: !t.done } : t)));
@@ -353,6 +401,8 @@ function HomeView({ tasks, setTasks, assignments, onUnlockWork, codeError, hasCo
   }
   function openQuickAdd(dateKey) {
     setFormDate(dateKey || selectedDate);
+    setFormRepeat("none");
+    setFormRepeatEnd("");
     setFormOpen(true);
   }
   function submitCode() {
@@ -573,6 +623,31 @@ function HomeView({ tasks, setTasks, assignments, onUnlockWork, codeError, hasCo
                 ))}
               </div>
             </div>
+            <div className="pd-field">
+              <label>繰り返し</label>
+              <div className="pd-cat-row">
+                {Object.entries(REPEAT_LABELS).map(([key, label]) => (
+                  <button key={key} className={"pd-cat-btn" + (formRepeat === key ? " active" : "")}
+                    style={{ color: formRepeat === key ? "var(--pd-teal)" : undefined }} onClick={() => setFormRepeat(key)}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {formRepeat !== "none" && (
+              <div className="pd-field">
+                <label htmlFor="pd-repeat-end">
+                  終了日(任意・未入力なら{REPEAT_CAP_LABELS[formRepeat]}分作成)
+                </label>
+                <input
+                  id="pd-repeat-end"
+                  type="date"
+                  value={formRepeatEnd}
+                  min={formDate}
+                  onChange={(e) => setFormRepeatEnd(e.target.value)}
+                />
+              </div>
+            )}
             <div className="pd-panel-actions">
               <button className="pd-btn-secondary" onClick={() => setFormOpen(false)}>キャンセル</button>
               <button className="pd-btn-primary" onClick={addTask} disabled={!formTitle.trim()}>追加する</button>
@@ -597,6 +672,7 @@ function TaskRow({ task, onToggle, onDelete, showDate }) {
           <span className="pd-dot" style={{ background: cat.color }} />
           <span>{cat.label}</span>
           {task.time && (<><span>·</span><Clock size={11} /><span>{task.time}</span></>)}
+          {task.seriesId && (<><span>·</span><Repeat size={11} /><span>{REPEAT_LABELS[task.repeat] || "繰り返し"}</span></>)}
           {showDate && (<><span>·</span><span>{formatDateLabel(task.date)}</span></>)}
         </div>
       </div>
