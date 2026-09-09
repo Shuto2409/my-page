@@ -24,10 +24,22 @@ import {
   Moon,
   Cloud,
 } from "lucide-react";
+import {
+  LineChart,
+  Line,
+  CartesianGrid,
+  XAxis,
+  YAxis,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+} from "recharts";
+
 const STORAGE_TASKS = "personal-dashboard:tasks";
 const STORAGE_DIARY = "personal-dashboard:diary";
 const STORAGE_NOTES = "personal-dashboard:notes";
 const STORAGE_ASSIGN = "personal-dashboard:assignments";
+const STORAGE_WORKTIMES = "personal-dashboard:worktimes";
 const STORAGE_WORKCODE = "personal-dashboard:workcode";
 const STORAGE_THEME = "personal-dashboard:theme";
 const STORAGE_APPLOCK = "personal-dashboard:applock";
@@ -217,6 +229,7 @@ export default function PersonalDashboard() {
   const [diary, setDiary, diaryErr] = usePersistedList(STORAGE_DIARY);
   const [notes, setNotes, notesErr] = usePersistedList(STORAGE_NOTES);
   const [assignments, setAssignments, assignErr] = usePersistedList(STORAGE_ASSIGN);
+  const [workTimes, setWorkTimes, workTimesErr] = usePersistedList(STORAGE_WORKTIMES);
   const [workCode, setWorkCode] = usePersistedValue(STORAGE_WORKCODE);
   const [workUnlocked, setWorkUnlocked] = useState(false);
   const [codeError, setCodeError] = useState(false);
@@ -232,7 +245,7 @@ export default function PersonalDashboard() {
     document.body.style.background = isDark ? "#111318" : "#EFECE3";
   }, [isDark]);
 
-  const saveError = tasksErr || diaryErr || notesErr || assignErr;
+  const saveError = tasksErr || diaryErr || notesErr || assignErr || workTimesErr;
 
   function toggleTheme() {
     setTheme(isDark ? "light" : "dark");
@@ -366,7 +379,7 @@ export default function PersonalDashboard() {
           {activeView === "assignments" && (
             <AssignmentsView assignments={assignments} setAssignments={setAssignments} />
           )}
-          {activeView === "work" && workUnlocked && <WorkView tasks={tasks} setTasks={setTasks} />}
+          {activeView === "work" && workUnlocked && <WorkView tasks={tasks} setTasks={setTasks} workTimes={workTimes} setWorkTimes={setWorkTimes} />}
         </div>
       </div>
       {saveError && <div className="pd-save-warning-fixed">保存に失敗しました。もう一度お試しください。</div>}
@@ -1555,7 +1568,7 @@ function mondayOf(d) {
   r.setHours(0, 0, 0, 0);
   return r;
 }
-function WorkView({ tasks, setTasks }) {
+function WorkView({ tasks, setTasks, workTimes, setWorkTimes }) {
   const [formOpen, setFormOpen] = useState(false);
   const [editingTaskId, setEditingTaskId] = useState(null);
   const [formTitle, setFormTitle] = useState("");
@@ -1563,6 +1576,9 @@ function WorkView({ tasks, setTasks }) {
   const [formAllDay, setFormAllDay] = useState(false);
   const [formTime, setFormTime] = useState("");
   const [formEndTime, setFormEndTime] = useState("");
+
+  const [viewTab, setViewTab] = useState("list"); // "list" | "worktime"
+  const [newRowDate, setNewRowDate] = useState(() => toDateKey(new Date()));
 
   const todayKey = toDateKey(new Date());
   const workTasks = useMemo(() => tasks.filter((t) => t.category === "work"), [tasks]);
@@ -1575,6 +1591,28 @@ function WorkView({ tasks, setTasks }) {
     [workTasks]
   );
   const overdueCount = pending.filter((t) => t.date < todayKey).length;
+
+  const sortedWorkTimes = useMemo(
+    () => [...workTimes].sort((a, b) => b.date.localeCompare(a.date)),
+    [workTimes]
+  );
+  const chartWorkTimes = useMemo(
+    () => [...workTimes].sort((a, b) => a.date.localeCompare(b.date)),
+    [workTimes]
+  );
+
+  function addWorkTimeRow() {
+    if (!newRowDate) return;
+    if (workTimes.some((w) => w.date === newRowDate)) return;
+    setWorkTimes((prev) => [...prev, { id: uid(), date: newRowDate, bf: null, lunch: null, snack: null, dinner: null }]);
+  }
+  function updateWorkTimeCell(id, field, value) {
+    const num = value === "" ? null : Math.max(0, Number(value));
+    setWorkTimes((prev) => prev.map((w) => (w.id === id ? { ...w, [field]: Number.isNaN(num) ? null : num } : w)));
+  }
+  function deleteWorkTimeRow(id) {
+    setWorkTimes((prev) => prev.filter((w) => w.id !== id));
+  }
 
   function openNew() {
     setEditingTaskId(null);
@@ -1623,36 +1661,127 @@ function WorkView({ tasks, setTasks }) {
     <div className="pd-view">
       <div className="pd-view-header">
         <div className="pd-view-title">仕事</div>
-        <button className="pd-quickadd-btn pd-inline" onClick={openNew}><Plus size={16} /> タスクを追加</button>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <div className="pd-tabs">
+            <button className={"pd-tab" + (viewTab === "list" ? " active" : "")} onClick={() => setViewTab("list")}>タスク一覧</button>
+            <button className={"pd-tab" + (viewTab === "worktime" ? " active" : "")} onClick={() => setViewTab("worktime")}>時間帯分析</button>
+          </div>
+          {viewTab === "list" && (
+            <button className="pd-quickadd-btn pd-inline" onClick={openNew}><Plus size={16} /> タスクを追加</button>
+          )}
+        </div>
       </div>
 
-      {overdueCount > 0 && (
-        <div className="pd-overdue-banner" style={{ marginBottom: 16, cursor: "default" }}>
-          <AlertCircle size={15} />
-          期限切れが{overdueCount}件あります
-        </div>
+      {viewTab === "list" && (
+        <>
+          {overdueCount > 0 && (
+            <div className="pd-overdue-banner" style={{ marginBottom: 16, cursor: "default" }}>
+              <AlertCircle size={15} />
+              期限切れが{overdueCount}件あります
+            </div>
+          )}
+
+          <div className="pd-section-label" style={{ marginBottom: 10 }}>未完了({pending.length})</div>
+          {pending.length === 0 ? (
+            <div className="pd-empty-note">未完了の仕事タスクはありません</div>
+          ) : (
+            <div className="pd-assign-list" style={{ marginBottom: 24 }}>
+              {pending.map((t) => (
+                <TaskRow key={t.id} task={t} onToggle={toggleDone} onDelete={deleteTask} onEdit={openEdit} showDate />
+              ))}
+            </div>
+          )}
+
+          <div className="pd-section-label" style={{ marginBottom: 10 }}>完了({done.length})</div>
+          {done.length === 0 ? (
+            <div className="pd-empty-note">完了した仕事タスクはまだありません</div>
+          ) : (
+            <div className="pd-assign-list">
+              {done.map((t) => (
+                <TaskRow key={t.id} task={t} onToggle={toggleDone} onDelete={deleteTask} onEdit={openEdit} showDate />
+              ))}
+            </div>
+          )}
+        </>
       )}
 
-      <div className="pd-section-label" style={{ marginBottom: 10 }}>未完了({pending.length})</div>
-      {pending.length === 0 ? (
-        <div className="pd-empty-note">未完了の仕事タスクはありません</div>
-      ) : (
-        <div className="pd-assign-list" style={{ marginBottom: 24 }}>
-          {pending.map((t) => (
-            <TaskRow key={t.id} task={t} onToggle={toggleDone} onDelete={deleteTask} onEdit={openEdit} showDate />
-          ))}
-        </div>
-      )}
+      {viewTab === "worktime" && (
+        <>
+          <div className="pd-chart-card" style={{ marginBottom: 16 }}>
+            <div className="pd-chart-card-header">
+              <div className="pd-chart-title">日別の入力</div>
+              <div className="pd-agg-filters">
+                <input type="date" className="pd-select" value={newRowDate} onChange={(e) => setNewRowDate(e.target.value)} />
+                <button className="pd-btn-secondary pd-small" onClick={addWorkTimeRow}>行を追加</button>
+              </div>
+            </div>
+            {sortedWorkTimes.length === 0 ? (
+              <div className="pd-empty-note">まだ入力がありません。上から日付を選んで行を追加してください。</div>
+            ) : (
+              <div className="pd-worktime-table-wrap">
+                <table className="pd-worktime-table">
+                  <thead>
+                    <tr>
+                      <th>日付</th>
+                      <th><span className="pd-dot" style={{ background: "var(--pd-teal)" }} /> BF</th>
+                      <th><span className="pd-dot" style={{ background: "var(--pd-amber)" }} /> ランチ</th>
+                      <th><span className="pd-dot" style={{ background: "var(--pd-purple)" }} /> スナック</th>
+                      <th><span className="pd-dot" style={{ background: "var(--pd-coral)" }} /> ディナー</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sortedWorkTimes.map((w) => (
+                      <tr key={w.id}>
+                        <td>{formatDateLabel(w.date)}</td>
+                        {["bf", "lunch", "snack", "dinner"].map((field) => (
+                          <td key={field}>
+                            <input
+                              type="number"
+                              min="0"
+                              className="pd-worktime-input"
+                              placeholder="分"
+                              value={w[field] ?? ""}
+                              onChange={(e) => updateWorkTimeCell(w.id, field, e.target.value)}
+                            />
+                          </td>
+                        ))}
+                        <td>
+                          <button className="pd-icon-btn" onClick={() => deleteWorkTimeRow(w.id)} aria-label="削除"><Trash2 size={14} /></button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
 
-      <div className="pd-section-label" style={{ marginBottom: 10 }}>完了({done.length})</div>
-      {done.length === 0 ? (
-        <div className="pd-empty-note">完了した仕事タスクはまだありません</div>
-      ) : (
-        <div className="pd-assign-list">
-          {done.map((t) => (
-            <TaskRow key={t.id} task={t} onToggle={toggleDone} onDelete={deleteTask} onEdit={openEdit} showDate />
-          ))}
-        </div>
+          <div className="pd-chart-card">
+            <div className="pd-chart-card-header">
+              <div className="pd-chart-title">時間帯別 作業時間の推移(分)</div>
+            </div>
+            {chartWorkTimes.length === 0 ? (
+              <div className="pd-empty-note">データを入力するとグラフが表示されます</div>
+            ) : (
+              <div style={{ width: "100%", height: 280 }}>
+                <ResponsiveContainer>
+                  <LineChart data={chartWorkTimes.map((w) => ({ label: formatDateLabel(w.date).replace(/\(.*\)/, ""), BF: w.bf, ランチ: w.lunch, スナック: w.snack, ディナー: w.dinner }))} margin={{ left: 0, right: 16, top: 8, bottom: 8 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--pd-line)" vertical={false} />
+                    <XAxis dataKey="label" tick={{ fontSize: 11, fill: "var(--pd-ink-muted)" }} axisLine={{ stroke: "var(--pd-line)" }} tickLine={false} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 12, fill: "var(--pd-ink-muted)" }} axisLine={{ stroke: "var(--pd-line)" }} tickLine={false} width={32} />
+                    <Tooltip contentStyle={{ fontSize: 12.5, borderRadius: 8, border: "1px solid var(--pd-line)" }} />
+                    <Legend wrapperStyle={{ fontSize: 12.5 }} />
+                    <Line type="monotone" dataKey="BF" stroke="var(--pd-teal)" strokeWidth={2.2} dot={{ r: 3 }} connectNulls />
+                    <Line type="monotone" dataKey="ランチ" stroke="var(--pd-amber)" strokeWidth={2.2} dot={{ r: 3 }} connectNulls />
+                    <Line type="monotone" dataKey="スナック" stroke="var(--pd-purple)" strokeWidth={2.2} dot={{ r: 3 }} connectNulls />
+                    <Line type="monotone" dataKey="ディナー" stroke="var(--pd-coral)" strokeWidth={2.2} dot={{ r: 3 }} connectNulls />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </div>
+        </>
       )}
 
       {formOpen && (
@@ -2006,6 +2135,18 @@ function GlobalStyle() {
       .pd-stat-sub { font-size: 12px; color: var(--pd-ink-muted); margin-top: 2px; }
       .pd-chart-card { background: var(--pd-surface); border: none; border-radius: 12px; padding: 20px; margin-bottom: 16px; }
       .pd-chart-card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; flex-wrap: wrap; gap: 8px; }
+      .pd-agg-filters { display: flex; gap: 6px; flex-wrap: wrap; }
+      .pd-select { font-size: 12.5px; font-family: 'Inter', sans-serif; padding: 6px 10px; border-radius: 8px; border: none; background: var(--pd-bg); color: var(--pd-ink); cursor: pointer; }
+      .pd-select:focus-visible { outline: 2px solid var(--pd-teal); outline-offset: 1px; }
+
+      .pd-worktime-table-wrap { overflow-x: auto; }
+      .pd-worktime-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+      .pd-worktime-table th { text-align: left; padding: 8px 10px; color: var(--pd-ink-muted); font-weight: 500; border-bottom: 1px solid var(--pd-line); white-space: nowrap; }
+      .pd-worktime-table th .pd-dot { margin-right: 4px; }
+      .pd-worktime-table td { padding: 6px 10px; border-bottom: 1px solid var(--pd-line); white-space: nowrap; }
+      .pd-worktime-table tr:last-child td { border-bottom: none; }
+      .pd-worktime-input { width: 64px; border: none; border-radius: 7px; padding: 7px 8px; font-size: 13px; background: var(--pd-bg); color: var(--pd-ink); font-family: 'Inter', sans-serif; text-align: right; }
+      .pd-worktime-input:focus-visible, .pd-worktime-input:focus { outline: 2px solid var(--pd-teal); outline-offset: 1px; }
       .pd-chart-title { font-family: 'Libre Franklin', sans-serif; font-weight: 600; font-size: 14.5px; }
 
       .pd-overlay { position: absolute; inset: 0; background: rgba(33,37,44,0.32); display: flex; align-items: center; justify-content: center; z-index: 10; padding: 20px; }
