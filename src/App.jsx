@@ -1578,7 +1578,8 @@ function WorkView({ tasks, setTasks, workTimes, setWorkTimes }) {
   const [formEndTime, setFormEndTime] = useState("");
 
   const [viewTab, setViewTab] = useState("list"); // "list" | "worktime"
-  const [newRowDate, setNewRowDate] = useState(() => toDateKey(new Date()));
+  const [tableYear, setTableYear] = useState(() => new Date().getFullYear());
+  const [tableMonth, setTableMonth] = useState(() => new Date().getMonth() + 1);
 
   const todayKey = toDateKey(new Date());
   const workTasks = useMemo(() => tasks.filter((t) => t.category === "work"), [tasks]);
@@ -1592,13 +1593,18 @@ function WorkView({ tasks, setTasks, workTimes, setWorkTimes }) {
   );
   const overdueCount = pending.filter((t) => t.date < todayKey).length;
 
-  const sortedWorkTimes = useMemo(
-    () => [...workTimes].sort((a, b) => b.date.localeCompare(a.date)),
-    [workTimes]
-  );
+  const monthDayRows = useMemo(() => {
+    const numDays = new Date(tableYear, tableMonth, 0).getDate();
+    return Array.from({ length: numDays }, (_, i) => {
+      const date = `${tableYear}-${pad(tableMonth)}-${pad(i + 1)}`;
+      const existing = workTimes.find((w) => w.date === date);
+      return existing || { id: null, date, bf: null, lunch: null, snack: null, dinner: null };
+    });
+  }, [workTimes, tableYear, tableMonth]);
+
   const chartWorkTimes = useMemo(
-    () => [...workTimes].sort((a, b) => a.date.localeCompare(b.date)),
-    [workTimes]
+    () => monthDayRows.filter((w) => w.bf != null || w.lunch != null || w.snack != null || w.dinner != null),
+    [monthDayRows]
   );
 
   const weeklyAvgData = useMemo(() => {
@@ -1640,17 +1646,22 @@ function WorkView({ tasks, setTasks, workTimes, setWorkTimes }) {
       });
   }, [workTimes]);
 
-  function addWorkTimeRow() {
-    if (!newRowDate) return;
-    if (workTimes.some((w) => w.date === newRowDate)) return;
-    setWorkTimes((prev) => [...prev, { id: uid(), date: newRowDate, bf: null, lunch: null, snack: null, dinner: null }]);
-  }
-  function updateWorkTimeCell(id, field, value) {
+  function updateWorkTimeCell(date, field, value) {
     const num = value === "" ? null : Math.max(0, Number(value));
-    setWorkTimes((prev) => prev.map((w) => (w.id === id ? { ...w, [field]: Number.isNaN(num) ? null : num } : w)));
+    const finalNum = Number.isNaN(num) ? null : num;
+    setWorkTimes((prev) => {
+      const idx = prev.findIndex((w) => w.date === date);
+      if (idx === -1) {
+        if (finalNum === null) return prev;
+        return [...prev, { id: uid(), date, bf: null, lunch: null, snack: null, dinner: null, [field]: finalNum }];
+      }
+      const updated = [...prev];
+      updated[idx] = { ...updated[idx], [field]: finalNum };
+      return updated;
+    });
   }
-  function deleteWorkTimeRow(id) {
-    setWorkTimes((prev) => prev.filter((w) => w.id !== id));
+  function deleteWorkTimeRow(date) {
+    setWorkTimes((prev) => prev.filter((w) => w.date !== date));
   }
 
   function openNew() {
@@ -1750,50 +1761,54 @@ function WorkView({ tasks, setTasks, workTimes, setWorkTimes }) {
             <div className="pd-chart-card-header">
               <div className="pd-chart-title">日別の入力</div>
               <div className="pd-agg-filters">
-                <input type="date" className="pd-select" value={newRowDate} onChange={(e) => setNewRowDate(e.target.value)} />
-                <button className="pd-btn-secondary pd-small" onClick={addWorkTimeRow}>行を追加</button>
+                <select className="pd-select" value={tableYear} onChange={(e) => setTableYear(Number(e.target.value))}>
+                  {[tableYear - 1, tableYear, tableYear + 1].filter((y, i, arr) => arr.indexOf(y) === i).map((y) => (
+                    <option key={y} value={y}>{y}年</option>
+                  ))}
+                </select>
+                <select className="pd-select" value={tableMonth} onChange={(e) => setTableMonth(Number(e.target.value))}>
+                  {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                    <option key={m} value={m}>{m}月</option>
+                  ))}
+                </select>
               </div>
             </div>
-            {sortedWorkTimes.length === 0 ? (
-              <div className="pd-empty-note">まだ入力がありません。上から日付を選んで行を追加してください。</div>
-            ) : (
-              <div className="pd-worktime-table-wrap">
-                <table className="pd-worktime-table">
-                  <thead>
-                    <tr>
-                      <th>日付</th>
-                      <th><span className="pd-dot" style={{ background: "var(--pd-teal)" }} /> BF</th>
-                      <th><span className="pd-dot" style={{ background: "var(--pd-amber)" }} /> ランチ</th>
-                      <th><span className="pd-dot" style={{ background: "var(--pd-purple)" }} /> スナック</th>
-                      <th><span className="pd-dot" style={{ background: "var(--pd-coral)" }} /> ディナー</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {sortedWorkTimes.map((w) => (
-                      <tr key={w.id}>
-                        <td>{formatDateLabel(w.date)}</td>
-                        {["bf", "lunch", "snack", "dinner"].map((field) => (
-                          <td key={field}>
-                            <input
-                              type="number"
-                              min="0"
-                              className="pd-worktime-input"
-                              placeholder="秒"
-                              value={w[field] ?? ""}
-                              onChange={(e) => updateWorkTimeCell(w.id, field, e.target.value)}
-                            />
-                          </td>
-                        ))}
-                        <td>
-                          <button className="pd-icon-btn" onClick={() => deleteWorkTimeRow(w.id)} aria-label="削除"><Trash2 size={14} /></button>
+            <div className="pd-worktime-table-wrap">
+              <table className="pd-worktime-table">
+                <thead>
+                  <tr>
+                    <th>日付</th>
+                    <th><span className="pd-dot" style={{ background: "var(--pd-teal)" }} /> BF</th>
+                    <th><span className="pd-dot" style={{ background: "var(--pd-amber)" }} /> ランチ</th>
+                    <th><span className="pd-dot" style={{ background: "var(--pd-purple)" }} /> スナック</th>
+                    <th><span className="pd-dot" style={{ background: "var(--pd-coral)" }} /> ディナー</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {monthDayRows.map((w) => (
+                    <tr key={w.date}>
+                      <td>{formatDateLabel(w.date)}</td>
+                      {["bf", "lunch", "snack", "dinner"].map((field) => (
+                        <td key={field}>
+                          <input
+                            type="number"
+                            min="0"
+                            className="pd-worktime-input"
+                            placeholder="秒"
+                            value={w[field] ?? ""}
+                            onChange={(e) => updateWorkTimeCell(w.date, field, e.target.value)}
+                          />
                         </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                      ))}
+                      <td>
+                        <button className="pd-icon-btn" onClick={() => deleteWorkTimeRow(w.date)} aria-label="削除"><Trash2 size={14} /></button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
               </div>
-            )}
           </div>
 
           <div className="pd-chart-card" style={{ marginBottom: 16 }}>
