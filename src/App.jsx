@@ -546,11 +546,27 @@ function HomeView({ tasks, setTasks, assignments, onUnlockWork, codeError, hasCo
     setSelectedDate(toDateKey(d));
     setViewMode("day");
   }
-  function openQuickAdd(dateKey) {
+  function openQuickAdd(dateKey, time) {
     setFormDate(dateKey || selectedDate);
+    setFormTime(time || "");
     setFormRepeat("none");
     setFormRepeatEnd("");
     setFormOpen(true);
+  }
+  function timeFromOffset(offsetY) {
+    let totalMinutes = (offsetY / ROW_HEIGHT) * 60;
+    totalMinutes = Math.max(0, Math.min(24 * 60 - 15, totalMinutes));
+    totalMinutes = Math.round(totalMinutes / 15) * 15;
+    const hh = Math.floor(totalMinutes / 60);
+    const mm = totalMinutes % 60;
+    return `${pad(hh)}:${pad(mm)}`;
+  }
+  function handleDayColClick(e, d) {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const offsetY = e.clientY - rect.top;
+    const time = timeFromOffset(offsetY);
+    setSelectedDate(toDateKey(d));
+    openQuickAdd(toDateKey(d), time);
   }
   function submitCode() {
     onUnlockWork(codeInput);
@@ -758,7 +774,8 @@ function HomeView({ tasks, setTasks, assignments, onUnlockWork, codeError, hasCo
                           height: 24 * ROW_HEIGHT,
                           backgroundImage: `repeating-linear-gradient(to bottom, var(--pd-line) 0px, var(--pd-line) 1px, transparent 1px, transparent ${ROW_HEIGHT}px)`,
                         }}
-                        onClick={() => pickDate(d)}
+                        onClick={(e) => handleDayColClick(e, d)}
+                        title="クリックしてこの時間に予定を追加"
                       >
                         {timedTasks.map((t) => {
                           const [hh, mm] = t.time.split(":").map(Number);
@@ -770,6 +787,10 @@ function HomeView({ tasks, setTasks, assignments, onUnlockWork, codeError, hasCo
                               className={"pd-week-tg-event" + (t.done ? " done" : "")}
                               style={{ top, background: cat.color }}
                               title={`${t.time} ${t.title}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                pickDate(d);
+                              }}
                             >
                               <span className="pd-week-tg-event-time">{t.time}</span>
                               <span>{t.title}</span>
