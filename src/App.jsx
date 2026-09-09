@@ -1558,6 +1558,9 @@ function GlobalStyle() {
         --pd-primary-bg: #21252C;
         --pd-primary-text: #FFFFFF;
         --pd-primary-hover: #34394A;
+        --pd-gradient: linear-gradient(135deg, #15A594 0%, #6C4AD6 100%);
+        --pd-gradient-btn: linear-gradient(135deg, #159C8D 0%, #5D3FC4 100%);
+        --pd-gradient-btn-hover: linear-gradient(135deg, #128577 0%, #4C33AD 100%);
 
         font-family: 'Inter', system-ui, sans-serif;
         color: var(--pd-ink);
@@ -1591,6 +1594,9 @@ function GlobalStyle() {
         --pd-primary-bg: #ECEDEF;
         --pd-primary-text: #16181D;
         --pd-primary-hover: #D5D7DB;
+        --pd-gradient: linear-gradient(135deg, #52B0A8 0%, #9C8AD1 100%);
+        --pd-gradient-btn: linear-gradient(135deg, #1E7A72 0%, #4B3A8C 100%);
+        --pd-gradient-btn-hover: linear-gradient(135deg, #256F68 0%, #59448F 100%);
       }
       .pd-root * { box-sizing: border-box; }
       .pd-root ::-webkit-scrollbar { width: 8px; height: 8px; }
@@ -1636,15 +1642,18 @@ function GlobalStyle() {
 
       .pd-rail { background: var(--pd-surface); border-right: 1px solid var(--pd-line); padding: 26px 22px; display: flex; flex-direction: column; gap: 22px; }
       @media (max-width: 780px) { .pd-rail { border-right: none; border-bottom: 1px solid var(--pd-line); } }
-      .pd-greeting { font-family: 'Libre Franklin', sans-serif; font-weight: 700; font-size: 21px; letter-spacing: -0.015em; line-height: 1.25; }
+      .pd-greeting {
+        font-family: 'Libre Franklin', sans-serif; font-weight: 700; font-size: 21px; letter-spacing: -0.015em; line-height: 1.25;
+        background: var(--pd-gradient); -webkit-background-clip: text; background-clip: text; color: transparent;
+      }
       .pd-greeting-date { color: var(--pd-ink-muted); font-size: 13px; margin-top: 4px; }
 
       .pd-quickadd-btn {
-        display: flex; align-items: center; gap: 8px; justify-content: center; background: var(--pd-primary-bg); color: var(--pd-primary-text);
+        display: flex; align-items: center; gap: 8px; justify-content: center; background: var(--pd-gradient-btn); color: #fff;
         border: none; border-radius: 10px; padding: 11px 14px; font-size: 14px; font-weight: 500; font-family: 'Inter', sans-serif;
         cursor: pointer;
       }
-      .pd-quickadd-btn:hover { background: var(--pd-primary-hover); }
+      .pd-quickadd-btn:hover { background: var(--pd-gradient-btn-hover); }
       .pd-quickadd-btn:focus-visible { outline: 2px solid var(--pd-teal); outline-offset: 2px; }
       .pd-quickadd-btn.pd-inline { width: fit-content; }
 
@@ -1702,7 +1711,7 @@ function GlobalStyle() {
       .pd-cell { aspect-ratio: 1 / 0.82; border: none; border-radius: 9px; background: var(--pd-surface); padding: 6px 6px; cursor: pointer; display: flex; flex-direction: column; gap: 4px; transition: background 0.15s ease, box-shadow 0.15s ease; min-height: 56px; }
       .pd-cell:hover { background: var(--pd-teal-soft); }
       .pd-cell.out { opacity: 0.4; }
-      .pd-cell.today { background: var(--pd-teal-soft); }
+      .pd-cell.today { background: linear-gradient(135deg, var(--pd-teal-soft), var(--pd-purple-soft)); }
       .pd-cell.selected { box-shadow: inset 0 0 0 1.5px var(--pd-ink); }
       .pd-cell-num { font-size: 12.5px; font-weight: 500; }
       .pd-cell-dots { display: flex; gap: 3px; flex-wrap: wrap; }
@@ -1715,7 +1724,7 @@ function GlobalStyle() {
       .pd-week-tg-daycell { text-align: center; padding: 8px 2px; cursor: pointer; border-right: 1px solid var(--pd-line); transition: background 0.15s ease; }
       .pd-week-tg-daycell:hover { background: var(--pd-bg); }
       .pd-week-tg-daycell:last-child { border-right: none; }
-      .pd-week-tg-daycell.today { background: var(--pd-teal-soft); }
+      .pd-week-tg-daycell.today { background: linear-gradient(135deg, var(--pd-teal-soft), var(--pd-purple-soft)); }
       .pd-week-tg-daycell.selected { box-shadow: inset 0 0 0 1.5px var(--pd-ink); }
       .pd-week-tg-daylabel { font-size: 10.5px; color: var(--pd-ink-muted); }
       .pd-week-tg-daynum { font-size: 15px; font-weight: 600; margin-top: 2px; }
@@ -1746,7 +1755,7 @@ function GlobalStyle() {
       .pd-list-title { font-family: 'Libre Franklin', sans-serif; font-weight: 600; font-size: 16px; }
       .pd-tabs { display: flex; gap: 4px; background: var(--pd-bg); padding: 3px; border-radius: 10px; }
       .pd-tab { display: flex; align-items: center; font-size: 12.5px; font-family: 'Inter', sans-serif; padding: 6px 12px; border-radius: 7px; border: none; background: transparent; cursor: pointer; color: var(--pd-ink-muted); }
-      .pd-tab.active { background: var(--pd-teal); color: white; }
+      .pd-tab.active { background: var(--pd-gradient); color: white; }
       .pd-group-heading { font-size: 12.5px; font-weight: 600; color: var(--pd-ink-muted); margin: 14px 0 6px; }
       .pd-group-heading:first-child { margin-top: 0; }
       .pd-mini-assign { display: flex; align-items: center; gap: 8px; font-size: 13.5px; padding: 6px 10px; }
@@ -1814,14 +1823,18 @@ function GlobalStyle() {
       .pd-stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 22px; }
       .pd-stat-card { background: var(--pd-surface); border: none; border-radius: 12px; padding: 18px; }
       .pd-stat-label { font-size: 12.5px; color: var(--pd-ink-muted); }
-      .pd-stat-value { font-family: 'Libre Franklin', sans-serif; font-weight: 700; font-size: 30px; margin-top: 4px; letter-spacing: -0.01em; }
+      .pd-stat-value {
+        font-family: 'Libre Franklin', sans-serif; font-weight: 700; font-size: 30px; margin-top: 4px; letter-spacing: -0.01em;
+        background: var(--pd-gradient); -webkit-background-clip: text; background-clip: text; color: transparent;
+      }
       .pd-stat-sub { font-size: 12px; color: var(--pd-ink-muted); margin-top: 2px; }
       .pd-chart-card { background: var(--pd-surface); border: none; border-radius: 12px; padding: 20px; margin-bottom: 16px; }
       .pd-chart-card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; flex-wrap: wrap; gap: 8px; }
       .pd-chart-title { font-family: 'Libre Franklin', sans-serif; font-weight: 600; font-size: 14.5px; }
 
       .pd-overlay { position: absolute; inset: 0; background: rgba(33,37,44,0.32); display: flex; align-items: center; justify-content: center; z-index: 10; padding: 20px; }
-      .pd-panel { background: var(--pd-surface); border-radius: 16px; padding: 24px; width: 100%; max-width: 380px; border: none; box-shadow: 0 12px 32px rgba(33,37,44,0.16); max-height: 88vh; overflow: auto; }
+      .pd-panel { background: var(--pd-surface); border-radius: 16px; padding: 24px; width: 100%; max-width: 380px; border: none; box-shadow: 0 12px 32px rgba(33,37,44,0.16); max-height: 88vh; overflow: auto; position: relative; }
+      .pd-panel::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 5px; border-radius: 16px 16px 0 0; background: var(--pd-gradient); }
       .pd-panel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; }
       .pd-panel-title { font-family: 'Libre Franklin', sans-serif; font-weight: 600; font-size: 16px; }
       .pd-field { margin-bottom: 14px; }
@@ -1836,8 +1849,8 @@ function GlobalStyle() {
       .pd-cat-btn { flex: 1; font-size: 12.5px; padding: 8px 6px; border-radius: 8px; border: none; background: var(--pd-bg); cursor: pointer; color: var(--pd-ink-muted); font-family: 'Inter', sans-serif; transition: background 0.15s ease, color 0.15s ease; }
       .pd-cat-btn.active { font-weight: 600; }
       .pd-panel-actions { display: flex; gap: 8px; margin-top: 20px; }
-      .pd-btn-primary { flex: 1; background: var(--pd-primary-bg); color: var(--pd-primary-text); border: none; border-radius: 9px; padding: 11px; font-size: 14px; font-weight: 500; cursor: pointer; font-family: 'Inter', sans-serif; }
-      .pd-btn-primary:hover { background: var(--pd-primary-hover); }
+      .pd-btn-primary { flex: 1; background: var(--pd-gradient-btn); color: #fff; border: none; border-radius: 9px; padding: 11px; font-size: 14px; font-weight: 500; cursor: pointer; font-family: 'Inter', sans-serif; }
+      .pd-btn-primary:hover { background: var(--pd-gradient-btn-hover); }
       .pd-btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
       .pd-btn-secondary { background: var(--pd-bg); color: var(--pd-ink); border: none; border-radius: 9px; padding: 11px 14px; font-size: 14px; cursor: pointer; font-family: 'Inter', sans-serif; }
       .pd-btn-secondary:hover { background: var(--pd-hover); }
