@@ -22,6 +22,7 @@ import {
   Repeat,
   Sun,
   Moon,
+  Cloud,
 } from "lucide-react";
 import {
   BarChart,
@@ -231,6 +232,7 @@ export default function PersonalDashboard() {
   const [codeError, setCodeError] = useState(false);
   const [theme, setTheme] = usePersistedValue(STORAGE_THEME);
   const isDark = theme === "dark";
+  const [syncOpen, setSyncOpen] = useState(false);
 
   useEffect(() => {
     document.body.style.background = isDark ? "#111318" : "#EFECE3";
@@ -295,6 +297,9 @@ export default function PersonalDashboard() {
           <button className="pd-theme-toggle" onClick={toggleTheme} aria-label={isDark ? "ライトモードに切り替え" : "ダークモードに切り替え"} title={isDark ? "ライトモード" : "ダークモード"}>
             {isDark ? <Sun size={17} /> : <Moon size={17} />}
           </button>
+          <button className="pd-theme-toggle" onClick={() => setSyncOpen(true)} aria-label="他の端末と同期" title="他の端末と同期">
+            <Cloud size={17} />
+          </button>
         </nav>
         <div className="pd-content">
           {activeView === "home" && (
@@ -316,6 +321,95 @@ export default function PersonalDashboard() {
         </div>
       </div>
       {saveError && <div className="pd-save-warning-fixed">保存に失敗しました。もう一度お試しください。</div>}
+      {syncOpen && <SyncPanel onClose={() => setSyncOpen(false)} />}
+    </div>
+  );
+}
+
+function SyncPanel({ onClose }) {
+  const existing = window.storage.getSyncConfig ? window.storage.getSyncConfig() : null;
+  const [url, setUrl] = useState(existing?.url || "");
+  const [key, setKey] = useState(existing?.key || "");
+  const [status, setStatus] = useState(existing ? "connected" : "idle"); // idle | testing | connected | error
+  const [message, setMessage] = useState("");
+  const [pushCount, setPushCount] = useState(null);
+
+  async function handleConnect() {
+    if (!url.trim() || !key.trim()) return;
+    setStatus("testing");
+    setMessage("");
+    const cfg = { url: url.trim(), key: key.trim() };
+    try {
+      await window.storage.testSyncConfig(cfg);
+      window.storage.setSyncConfig(cfg);
+      setStatus("connected");
+      setMessage("接続できました。");
+    } catch (e) {
+      setStatus("error");
+      setMessage("接続に失敗しました。URLとキー、テーブル作成を確認してください。");
+    }
+  }
+
+  async function handlePush() {
+    const cfg = window.storage.getSyncConfig();
+    if (!cfg) return;
+    try {
+      const n = await window.storage.pushAllLocalToCloud(cfg);
+      setPushCount(n);
+      setMessage(`この端末のデータ(${n}件)をクラウドに送りました。`);
+    } catch (e) {
+      setMessage("送信に失敗しました。接続情報を確認してください。");
+    }
+  }
+
+  function handleDisconnect() {
+    window.storage.setSyncConfig(null);
+    setStatus("idle");
+    setUrl("");
+    setKey("");
+    setMessage("同期を解除しました。この端末のデータはそのまま残ります。");
+  }
+
+  return (
+    <div className="pd-overlay" onClick={onClose}>
+      <div className="pd-panel" onClick={(e) => e.stopPropagation()}>
+        <div className="pd-panel-header">
+          <div className="pd-panel-title">他の端末と同期</div>
+          <button className="pd-icon-btn" onClick={onClose} aria-label="閉じる"><X size={16} /></button>
+        </div>
+
+        <p className="pd-sync-desc">
+          無料のSupabaseというサービスでデータの保存場所を作ると、同じ場所を指定した端末どうしでデータが共有されます。
+          未設定の場合、データはこの端末だけに保存されます。
+        </p>
+
+        <div className="pd-field">
+          <label htmlFor="sync-url">Project URL</label>
+          <input id="sync-url" type="text" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://xxxx.supabase.co" />
+        </div>
+        <div className="pd-field">
+          <label htmlFor="sync-key">Anon / Publishable key</label>
+          <input id="sync-key" type="text" value={key} onChange={(e) => setKey(e.target.value)} placeholder="ey... または sb_publishable_..." />
+        </div>
+
+        {message && (
+          <div className={"pd-sync-message" + (status === "error" ? " error" : "")}>{message}</div>
+        )}
+
+        <div className="pd-panel-actions">
+          <button className="pd-btn-secondary" onClick={onClose}>閉じる</button>
+          <button className="pd-btn-primary" onClick={handleConnect} disabled={!url.trim() || !key.trim() || status === "testing"}>
+            {status === "testing" ? "接続中..." : "接続してテスト"}
+          </button>
+        </div>
+
+        {status === "connected" && (
+          <div className="pd-sync-connected">
+            <button className="pd-btn-secondary pd-small" onClick={handlePush}>この端末のデータをクラウドに送る</button>
+            <button className="pd-btn-secondary pd-small" onClick={handleDisconnect}>同期を解除</button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -1750,6 +1844,11 @@ function GlobalStyle() {
       .pd-btn-secondary.pd-small { padding: 7px 11px; font-size: 12.5px; }
 
       .pd-save-warning-fixed { position: absolute; bottom: 10px; right: 14px; font-size: 11.5px; color: var(--pd-coral); background: var(--pd-coral-soft); padding: 5px 10px; border-radius: 7px; }
+
+      .pd-sync-desc { font-size: 12.5px; color: var(--pd-ink-muted); line-height: 1.6; margin: 0 0 16px; }
+      .pd-sync-message { font-size: 12.5px; color: var(--pd-teal); background: var(--pd-teal-soft); padding: 8px 10px; border-radius: 8px; margin-top: 4px; margin-bottom: 4px; }
+      .pd-sync-message.error { color: var(--pd-coral); background: var(--pd-coral-soft); }
+      .pd-sync-connected { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--pd-line); }
     `}</style>
   );
 }
