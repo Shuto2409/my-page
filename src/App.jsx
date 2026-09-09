@@ -346,7 +346,7 @@ function SyncPanel({ onClose }) {
       setMessage("接続できました。");
     } catch (e) {
       setStatus("error");
-      setMessage("接続に失敗しました。URLとキー、テーブル作成を確認してください。");
+      setMessage(`接続に失敗しました: ${e.message || e}`);
     }
   }
 
@@ -358,7 +358,7 @@ function SyncPanel({ onClose }) {
       setPushCount(n);
       setMessage(`この端末のデータ(${n}件)をクラウドに送りました。`);
     } catch (e) {
-      setMessage("送信に失敗しました。接続情報を確認してください。");
+      setMessage(`送信に失敗しました: ${e.message || e}`);
     }
   }
 
