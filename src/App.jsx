@@ -483,8 +483,10 @@ function HomeView({ tasks, setTasks, assignments, onUnlockWork, codeError, hasCo
   const [selectedDate, setSelectedDate] = useState(() => toDateKey(new Date()));
   const [viewMode, setViewMode] = useState("day");
   const [formOpen, setFormOpen] = useState(false);
+  const [editingTaskId, setEditingTaskId] = useState(null);
   const [formTitle, setFormTitle] = useState("");
   const [formDate, setFormDate] = useState(() => toDateKey(new Date()));
+  const [formAllDay, setFormAllDay] = useState(false);
   const [formTime, setFormTime] = useState("");
   const [formEndTime, setFormEndTime] = useState("");
   const [formCategory, setFormCategory] = useState("work");
@@ -503,13 +505,23 @@ function HomeView({ tasks, setTasks, assignments, onUnlockWork, codeError, hasCo
   const today = new Date();
   const todayKey = toDateKey(today);
 
-  const addTask = useCallback(() => {
+  const saveTask = useCallback(() => {
     if (!formTitle.trim()) return;
-    const validEnd = formTime && formEndTime && formEndTime > formTime ? formEndTime : "";
-    if (formRepeat === "none") {
+    const useTime = formAllDay ? "" : formTime;
+    const validEnd = !formAllDay && useTime && formEndTime && formEndTime > useTime ? formEndTime : "";
+
+    if (editingTaskId) {
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.id === editingTaskId
+            ? { ...t, title: formTitle.trim(), date: formDate, time: useTime, endTime: validEnd, category: formCategory }
+            : t
+        )
+      );
+    } else if (formRepeat === "none") {
       setTasks((prev) => [
         ...prev,
-        { id: uid(), title: formTitle.trim(), date: formDate, time: formTime, endTime: validEnd, category: formCategory, done: false },
+        { id: uid(), title: formTitle.trim(), date: formDate, time: useTime, endTime: validEnd, category: formCategory, done: false },
       ]);
     } else {
       const seriesId = uid();
@@ -520,7 +532,7 @@ function HomeView({ tasks, setTasks, assignments, onUnlockWork, codeError, hasCo
         repeat: formRepeat,
         title: formTitle.trim(),
         date: d,
-        time: formTime,
+        time: useTime,
         endTime: validEnd,
         category: formCategory,
         done: false,
@@ -530,10 +542,12 @@ function HomeView({ tasks, setTasks, assignments, onUnlockWork, codeError, hasCo
     setFormTitle("");
     setFormTime("");
     setFormEndTime("");
+    setFormAllDay(false);
     setFormRepeat("none");
     setFormRepeatEnd("");
+    setEditingTaskId(null);
     setFormOpen(false);
-  }, [formTitle, formDate, formTime, formEndTime, formCategory, formRepeat, formRepeatEnd, setTasks]);
+  }, [formTitle, formDate, formAllDay, formTime, formEndTime, formCategory, formRepeat, formRepeatEnd, editingTaskId, setTasks]);
 
   const toggleDone = useCallback((id) => {
     setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, done: !t.done } : t)));
@@ -611,17 +625,33 @@ function HomeView({ tasks, setTasks, assignments, onUnlockWork, codeError, hasCo
     setViewMode("day");
   }
   function openQuickAdd(dateKey, time, endTime) {
+    setEditingTaskId(null);
+    setFormTitle("");
     setFormDate(dateKey || selectedDate);
+    setFormAllDay(false);
     setFormTime(time || "");
     setFormEndTime(endTime || "");
+    setFormCategory("work");
+    setFormRepeat("none");
+    setFormRepeatEnd("");
+    setFormOpen(true);
+  }
+  function openEditTask(task) {
+    setEditingTaskId(task.id);
+    setFormTitle(task.title);
+    setFormDate(task.date);
+    setFormAllDay(!task.time);
+    setFormTime(task.time || "");
+    setFormEndTime(task.endTime || "");
+    setFormCategory(task.category);
     setFormRepeat("none");
     setFormRepeatEnd("");
     setFormOpen(true);
   }
   function timeFromOffset(offsetY) {
     let totalMinutes = (offsetY / ROW_HEIGHT) * 60;
-    totalMinutes = Math.max(0, Math.min(24 * 60 - 15, totalMinutes));
-    totalMinutes = Math.round(totalMinutes / 15) * 15;
+    totalMinutes = Math.max(0, Math.min(24 * 60 - 10, totalMinutes));
+    totalMinutes = Math.round(totalMinutes / 10) * 10;
     const hh = Math.floor(totalMinutes / 60);
     const mm = totalMinutes % 60;
     return `${pad(hh)}:${pad(mm)}`;
@@ -680,7 +710,7 @@ function HomeView({ tasks, setTasks, assignments, onUnlockWork, codeError, hasCo
           <div className="pd-today-list">
             {todayTasks.length === 0 && <div className="pd-empty-note">今日の予定はありません</div>}
             {todayTasks.map((t) => (
-              <TaskRow key={t.id} task={t} onToggle={toggleDone} onDelete={deleteTask} />
+              <TaskRow key={t.id} task={t} onToggle={toggleDone} onDelete={deleteTask} onEdit={openEditTask} />
             ))}
           </div>
         </div>
@@ -867,7 +897,8 @@ function HomeView({ tasks, setTasks, assignments, onUnlockWork, codeError, hasCo
                               title={`${t.time}${t.endTime ? `〜${t.endTime}` : ""} ${t.title}`}
                               onClick={(e) => {
                                 e.stopPropagation();
-                                pickDate(d);
+                                setSelectedDate(toDateKey(d));
+                                openEditTask(t);
                               }}
                             >
                               <span className="pd-week-tg-event-time">{t.time}</span>
@@ -914,7 +945,7 @@ function HomeView({ tasks, setTasks, assignments, onUnlockWork, codeError, hasCo
               {selectedDateTasks.length === 0 ? (
                 <div className="pd-empty-note">この日の予定はまだありません</div>
               ) : (
-                selectedDateTasks.map((t) => <TaskRow key={t.id} task={t} onToggle={toggleDone} onDelete={deleteTask} />)
+                selectedDateTasks.map((t) => <TaskRow key={t.id} task={t} onToggle={toggleDone} onDelete={deleteTask} onEdit={openEditTask} />)
               )}
             </div>
           )}
@@ -924,14 +955,14 @@ function HomeView({ tasks, setTasks, assignments, onUnlockWork, codeError, hasCo
               {overdueTasks.length > 0 && (
                 <>
                   <div className="pd-group-heading" style={{ color: "var(--pd-coral)" }}>期限切れ</div>
-                  {overdueTasks.map((t) => <TaskRow key={t.id} task={t} onToggle={toggleDone} onDelete={deleteTask} showDate />)}
+                  {overdueTasks.map((t) => <TaskRow key={t.id} task={t} onToggle={toggleDone} onDelete={deleteTask} onEdit={openEditTask} showDate />)}
                 </>
               )}
               {upcomingGrouped.length === 0 && overdueTasks.length === 0 && <div className="pd-empty-note">今後の予定はありません</div>}
               {upcomingGrouped.map((g) => (
                 <div key={g.date}>
                   <div className="pd-group-heading">{formatDateLabel(g.date)}</div>
-                  {g.tasks.map((t) => <TaskRow key={t.id} task={t} onToggle={toggleDone} onDelete={deleteTask} />)}
+                  {g.tasks.map((t) => <TaskRow key={t.id} task={t} onToggle={toggleDone} onDelete={deleteTask} onEdit={openEditTask} />)}
                 </div>
               ))}
             </div>
@@ -942,7 +973,7 @@ function HomeView({ tasks, setTasks, assignments, onUnlockWork, codeError, hasCo
               {doneTasks.length === 0 ? (
                 <div className="pd-empty-note">完了したタスクはまだありません</div>
               ) : (
-                doneTasks.map((t) => <TaskRow key={t.id} task={t} onToggle={toggleDone} onDelete={deleteTask} showDate />)
+                doneTasks.map((t) => <TaskRow key={t.id} task={t} onToggle={toggleDone} onDelete={deleteTask} onEdit={openEditTask} showDate />)
               )}
             </div>
           )}
@@ -953,29 +984,35 @@ function HomeView({ tasks, setTasks, assignments, onUnlockWork, codeError, hasCo
         <div className="pd-overlay" onClick={() => setFormOpen(false)}>
           <div className="pd-panel" onClick={(e) => e.stopPropagation()}>
             <div className="pd-panel-header">
-              <div className="pd-panel-title">予定・タスクを追加</div>
+              <div className="pd-panel-title">{editingTaskId ? "予定・タスクを編集" : "予定・タスクを追加"}</div>
               <button className="pd-icon-btn" onClick={() => setFormOpen(false)} aria-label="閉じる"><X size={16} /></button>
             </div>
             <div className="pd-field">
               <label htmlFor="pd-title">内容</label>
               <input id="pd-title" type="text" placeholder="例: クライアントに見積もり送付" value={formTitle}
                 onChange={(e) => setFormTitle(e.target.value)} autoFocus
-                onKeyDown={(e) => { if (e.key === "Enter") addTask(); }} />
+                onKeyDown={(e) => { if (e.key === "Enter") saveTask(); }} />
             </div>
-            <div className="pd-row2">
-              <div className="pd-field">
-                <label htmlFor="pd-date">日付</label>
-                <input id="pd-date" type="date" value={formDate} onChange={(e) => setFormDate(e.target.value)} />
-              </div>
-              <div className="pd-field">
-                <label htmlFor="pd-time">開始時刻(任意)</label>
-                <input id="pd-time" type="time" value={formTime} onChange={(e) => setFormTime(e.target.value)} />
-              </div>
+            <div className="pd-field">
+              <label htmlFor="pd-date">日付</label>
+              <input id="pd-date" type="date" value={formDate} onChange={(e) => setFormDate(e.target.value)} />
             </div>
-            {formTime && (
-              <div className="pd-field">
-                <label htmlFor="pd-endtime">終了時刻(任意)</label>
-                <input id="pd-endtime" type="time" value={formEndTime} min={formTime} onChange={(e) => setFormEndTime(e.target.value)} />
+            <div className="pd-field">
+              <label className="pd-allday-row">
+                <input type="checkbox" checked={formAllDay} onChange={(e) => setFormAllDay(e.target.checked)} />
+                終日(時刻を指定しない)
+              </label>
+            </div>
+            {!formAllDay && (
+              <div className="pd-row2">
+                <div className="pd-field">
+                  <label htmlFor="pd-time">開始時刻</label>
+                  <input id="pd-time" type="time" step="600" value={formTime} onChange={(e) => setFormTime(e.target.value)} />
+                </div>
+                <div className="pd-field">
+                  <label htmlFor="pd-endtime">終了時刻(任意)</label>
+                  <input id="pd-endtime" type="time" step="600" value={formEndTime} min={formTime} onChange={(e) => setFormEndTime(e.target.value)} disabled={!formTime} />
+                </div>
               </div>
             )}
             <div className="pd-field">
@@ -989,18 +1026,20 @@ function HomeView({ tasks, setTasks, assignments, onUnlockWork, codeError, hasCo
                 ))}
               </div>
             </div>
-            <div className="pd-field">
-              <label>繰り返し</label>
-              <div className="pd-cat-row">
-                {Object.entries(REPEAT_LABELS).map(([key, label]) => (
-                  <button key={key} className={"pd-cat-btn" + (formRepeat === key ? " active" : "")}
-                    style={formRepeat === key ? { background: "var(--pd-teal)", color: "#fff" } : undefined} onClick={() => setFormRepeat(key)}>
-                    {label}
-                  </button>
-                ))}
+            {!editingTaskId && (
+              <div className="pd-field">
+                <label>繰り返し</label>
+                <div className="pd-cat-row">
+                  {Object.entries(REPEAT_LABELS).map(([key, label]) => (
+                    <button key={key} className={"pd-cat-btn" + (formRepeat === key ? " active" : "")}
+                      style={formRepeat === key ? { background: "var(--pd-teal)", color: "#fff" } : undefined} onClick={() => setFormRepeat(key)}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
-            {formRepeat !== "none" && (
+            )}
+            {!editingTaskId && formRepeat !== "none" && (
               <div className="pd-field">
                 <label htmlFor="pd-repeat-end">
                   終了日(任意・未入力なら{REPEAT_CAP_LABELS[formRepeat]}分作成)
@@ -1015,8 +1054,12 @@ function HomeView({ tasks, setTasks, assignments, onUnlockWork, codeError, hasCo
               </div>
             )}
             <div className="pd-panel-actions">
-              <button className="pd-btn-secondary" onClick={() => setFormOpen(false)}>キャンセル</button>
-              <button className="pd-btn-primary" onClick={addTask} disabled={!formTitle.trim()}>追加する</button>
+              {editingTaskId ? (
+                <button className="pd-btn-secondary" onClick={() => { deleteTask(editingTaskId); setFormOpen(false); }}>削除</button>
+              ) : (
+                <button className="pd-btn-secondary" onClick={() => setFormOpen(false)}>キャンセル</button>
+              )}
+              <button className="pd-btn-primary" onClick={saveTask} disabled={!formTitle.trim()}>{editingTaskId ? "更新する" : "追加する"}</button>
             </div>
           </div>
         </div>
@@ -1025,7 +1068,7 @@ function HomeView({ tasks, setTasks, assignments, onUnlockWork, codeError, hasCo
   );
 }
 
-function TaskRow({ task, onToggle, onDelete, showDate }) {
+function TaskRow({ task, onToggle, onDelete, onEdit, showDate }) {
   const cat = CATEGORIES[task.category] || CATEGORIES.work;
   return (
     <div className={"pd-task-row" + (task.done ? " done" : "")}>
@@ -1042,6 +1085,7 @@ function TaskRow({ task, onToggle, onDelete, showDate }) {
           {showDate && (<><span>·</span><span>{formatDateLabel(task.date)}</span></>)}
         </div>
       </div>
+      {onEdit && <button className="pd-del-btn" onClick={() => onEdit(task)} aria-label="編集"><Pencil size={14} /></button>}
       <button className="pd-del-btn" onClick={() => onDelete(task.id)} aria-label="削除"><Trash2 size={14} /></button>
     </div>
   );
@@ -1953,6 +1997,8 @@ function GlobalStyle() {
       .pd-cat-row { display: flex; gap: 6px; }
       .pd-cat-btn { flex: 1; font-size: 12.5px; padding: 8px 6px; border-radius: 8px; border: none; background: var(--pd-bg); cursor: pointer; color: var(--pd-ink-muted); font-family: 'Inter', sans-serif; transition: background 0.15s ease, color 0.15s ease; }
       .pd-cat-btn.active { font-weight: 600; }
+      .pd-allday-row { display: flex !important; align-items: center; gap: 8px; cursor: pointer; font-size: 13.5px; color: var(--pd-ink); margin-bottom: 0; }
+      .pd-allday-row input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--pd-teal); cursor: pointer; }
       .pd-panel-actions { display: flex; gap: 8px; margin-top: 20px; }
       .pd-btn-primary { flex: 1; background: var(--pd-gradient-btn); color: #fff; border: none; border-radius: 9px; padding: 11px; font-size: 14px; font-weight: 500; cursor: pointer; font-family: 'Inter', sans-serif; }
       .pd-btn-primary:hover { background: var(--pd-gradient-btn-hover); }
