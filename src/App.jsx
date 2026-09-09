@@ -41,6 +41,7 @@ const STORAGE_NOTES = "personal-dashboard:notes";
 const STORAGE_ASSIGN = "personal-dashboard:assignments";
 const STORAGE_WORKCODE = "personal-dashboard:workcode";
 const STORAGE_THEME = "personal-dashboard:theme";
+const STORAGE_APPLOCK = "personal-dashboard:applock";
 
 const CATEGORIES = {
   work: { label: "仕事", color: "var(--pd-teal)" },
@@ -216,7 +217,7 @@ function usePersistedValue(key) {
     })();
   }, [value, loaded, key]);
 
-  return [value, setValue];
+  return [value, setValue, loaded];
 }
 
 /* ============================= APP ============================= */
@@ -233,6 +234,10 @@ export default function PersonalDashboard() {
   const [theme, setTheme] = usePersistedValue(STORAGE_THEME);
   const isDark = theme === "dark";
   const [syncOpen, setSyncOpen] = useState(false);
+  const [appPassword, setAppPassword, appPasswordLoaded] = usePersistedValue(STORAGE_APPLOCK);
+  const [appUnlocked, setAppUnlocked] = useState(false);
+  const [appPassInput, setAppPassInput] = useState("");
+  const [appPassError, setAppPassError] = useState(false);
 
   useEffect(() => {
     document.body.style.background = isDark ? "#111318" : "#EFECE3";
@@ -242,6 +247,22 @@ export default function PersonalDashboard() {
 
   function toggleTheme() {
     setTheme(isDark ? "light" : "dark");
+  }
+
+  function attemptAppUnlock() {
+    const trimmed = appPassInput.trim();
+    if (!trimmed) return;
+    if (!appPassword) {
+      setAppPassword(trimmed);
+      setAppUnlocked(true);
+      setAppPassError(false);
+    } else if (trimmed === appPassword) {
+      setAppUnlocked(true);
+      setAppPassError(false);
+    } else {
+      setAppPassError(true);
+      setAppPassInput("");
+    }
   }
 
   function attemptUnlock(code) {
@@ -266,6 +287,45 @@ export default function PersonalDashboard() {
     : NAV_ITEMS_BASE;
 
   const activeView = view === "work" && !workUnlocked ? "home" : view;
+
+  if (!appUnlocked) {
+    return (
+      <div className={"pd-root" + (isDark ? " pd-dark" : "")}>
+        <GlobalStyle />
+        <div className="pd-applock-screen">
+          {appPasswordLoaded && (
+            <div className="pd-applock-card">
+              <div className="pd-applock-icon"><Lock size={22} /></div>
+              <div className="pd-applock-title">パスワードが必要です</div>
+              <div className="pd-applock-sub">
+                {appPassword
+                  ? "このダッシュボードを開くにはパスワードを入力してください。"
+                  : "初回はここで入力した文字がそのままパスワードになります。"}
+              </div>
+              <input
+                type="password"
+                className="pd-applock-input"
+                value={appPassInput}
+                onChange={(e) => setAppPassInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") attemptAppUnlock(); }}
+                placeholder="パスワード"
+                autoFocus
+              />
+              {appPassError && <div className="pd-lock-error">パスワードが違います</div>}
+              <button className="pd-btn-primary" style={{ width: "100%", marginTop: 12 }} onClick={attemptAppUnlock} disabled={!appPassInput.trim()}>
+                開く
+              </button>
+              {appPassword && (
+                <div className="pd-applock-hint">
+                  パスワードを忘れた場合は、ブラウザの設定からこのサイトのデータを削除すると再設定できます(この端末に保存していた内容は消えます)。
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={"pd-root" + (isDark ? " pd-dark" : "")}>
@@ -426,6 +486,7 @@ function HomeView({ tasks, setTasks, assignments, onUnlockWork, codeError, hasCo
   const [formTitle, setFormTitle] = useState("");
   const [formDate, setFormDate] = useState(() => toDateKey(new Date()));
   const [formTime, setFormTime] = useState("");
+  const [formEndTime, setFormEndTime] = useState("");
   const [formCategory, setFormCategory] = useState("work");
   const [formRepeat, setFormRepeat] = useState("none");
   const [formRepeatEnd, setFormRepeatEnd] = useState("");
@@ -444,10 +505,11 @@ function HomeView({ tasks, setTasks, assignments, onUnlockWork, codeError, hasCo
 
   const addTask = useCallback(() => {
     if (!formTitle.trim()) return;
+    const validEnd = formTime && formEndTime && formEndTime > formTime ? formEndTime : "";
     if (formRepeat === "none") {
       setTasks((prev) => [
         ...prev,
-        { id: uid(), title: formTitle.trim(), date: formDate, time: formTime, category: formCategory, done: false },
+        { id: uid(), title: formTitle.trim(), date: formDate, time: formTime, endTime: validEnd, category: formCategory, done: false },
       ]);
     } else {
       const seriesId = uid();
@@ -459,6 +521,7 @@ function HomeView({ tasks, setTasks, assignments, onUnlockWork, codeError, hasCo
         title: formTitle.trim(),
         date: d,
         time: formTime,
+        endTime: validEnd,
         category: formCategory,
         done: false,
       }));
@@ -466,10 +529,11 @@ function HomeView({ tasks, setTasks, assignments, onUnlockWork, codeError, hasCo
     }
     setFormTitle("");
     setFormTime("");
+    setFormEndTime("");
     setFormRepeat("none");
     setFormRepeatEnd("");
     setFormOpen(false);
-  }, [formTitle, formDate, formTime, formCategory, formRepeat, formRepeatEnd, setTasks]);
+  }, [formTitle, formDate, formTime, formEndTime, formCategory, formRepeat, formRepeatEnd, setTasks]);
 
   const toggleDone = useCallback((id) => {
     setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, done: !t.done } : t)));
@@ -546,9 +610,10 @@ function HomeView({ tasks, setTasks, assignments, onUnlockWork, codeError, hasCo
     setSelectedDate(toDateKey(d));
     setViewMode("day");
   }
-  function openQuickAdd(dateKey, time) {
+  function openQuickAdd(dateKey, time, endTime) {
     setFormDate(dateKey || selectedDate);
     setFormTime(time || "");
+    setFormEndTime(endTime || "");
     setFormRepeat("none");
     setFormRepeatEnd("");
     setFormOpen(true);
@@ -561,12 +626,19 @@ function HomeView({ tasks, setTasks, assignments, onUnlockWork, codeError, hasCo
     const mm = totalMinutes % 60;
     return `${pad(hh)}:${pad(mm)}`;
   }
+  function addMinutesToTime(time, minutes) {
+    const [hh, mm] = time.split(":").map(Number);
+    let total = hh * 60 + mm + minutes;
+    total = Math.min(total, 24 * 60 - 1);
+    return `${pad(Math.floor(total / 60))}:${pad(total % 60)}`;
+  }
   function handleDayColClick(e, d) {
     const rect = e.currentTarget.getBoundingClientRect();
     const offsetY = e.clientY - rect.top;
     const time = timeFromOffset(offsetY);
+    const endTime = addMinutesToTime(time, 30);
     setSelectedDate(toDateKey(d));
-    openQuickAdd(toDateKey(d), time);
+    openQuickAdd(toDateKey(d), time, endTime);
   }
   function submitCode() {
     onUnlockWork(codeInput);
@@ -780,13 +852,19 @@ function HomeView({ tasks, setTasks, assignments, onUnlockWork, codeError, hasCo
                         {timedTasks.map((t) => {
                           const [hh, mm] = t.time.split(":").map(Number);
                           const top = (hh + mm / 60) * ROW_HEIGHT;
+                          let height = 20;
+                          if (t.endTime) {
+                            const [ehh, emm] = t.endTime.split(":").map(Number);
+                            const endTop = (ehh + emm / 60) * ROW_HEIGHT;
+                            height = Math.max(18, endTop - top - 2);
+                          }
                           const cat = CATEGORIES[t.category] || CATEGORIES.work;
                           return (
                             <div
                               key={t.id}
                               className={"pd-week-tg-event" + (t.done ? " done" : "")}
-                              style={{ top, background: cat.color }}
-                              title={`${t.time} ${t.title}`}
+                              style={{ top, height, background: cat.color }}
+                              title={`${t.time}${t.endTime ? `〜${t.endTime}` : ""} ${t.title}`}
                               onClick={(e) => {
                                 e.stopPropagation();
                                 pickDate(d);
@@ -890,10 +968,16 @@ function HomeView({ tasks, setTasks, assignments, onUnlockWork, codeError, hasCo
                 <input id="pd-date" type="date" value={formDate} onChange={(e) => setFormDate(e.target.value)} />
               </div>
               <div className="pd-field">
-                <label htmlFor="pd-time">時刻(任意)</label>
+                <label htmlFor="pd-time">開始時刻(任意)</label>
                 <input id="pd-time" type="time" value={formTime} onChange={(e) => setFormTime(e.target.value)} />
               </div>
             </div>
+            {formTime && (
+              <div className="pd-field">
+                <label htmlFor="pd-endtime">終了時刻(任意)</label>
+                <input id="pd-endtime" type="time" value={formEndTime} min={formTime} onChange={(e) => setFormEndTime(e.target.value)} />
+              </div>
+            )}
             <div className="pd-field">
               <label>カテゴリ</label>
               <div className="pd-cat-row">
@@ -953,7 +1037,7 @@ function TaskRow({ task, onToggle, onDelete, showDate }) {
         <div className="pd-task-meta">
           <span className="pd-dot" style={{ background: cat.color }} />
           <span>{cat.label}</span>
-          {task.time && (<><span>·</span><Clock size={11} /><span>{task.time}</span></>)}
+          {task.time && (<><span>·</span><Clock size={11} /><span>{task.time}{task.endTime ? `〜${task.endTime}` : ""}</span></>)}
           {task.seriesId && (<><span>·</span><Repeat size={11} /><span>{REPEAT_LABELS[task.repeat] || "繰り返し"}</span></>)}
           {showDate && (<><span>·</span><span>{formatDateLabel(task.date)}</span></>)}
         </div>
@@ -1763,7 +1847,7 @@ function GlobalStyle() {
       .pd-week-tg-daycol { position: relative; border-right: 1px solid var(--pd-line); cursor: pointer; }
       .pd-week-tg-daycol:last-child { border-right: none; }
       .pd-week-tg-daycol.today { background: var(--pd-teal-soft); }
-      .pd-week-tg-event { position: absolute; left: 2px; right: 2px; font-size: 10.5px; color: white; border-radius: 5px; padding: 1px 5px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; height: 20px; display: flex; align-items: center; gap: 5px; z-index: 2; }
+      .pd-week-tg-event { position: absolute; left: 2px; right: 2px; font-size: 10.5px; color: white; border-radius: 5px; padding: 1px 5px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; display: flex; align-items: center; gap: 5px; z-index: 2; cursor: pointer; }
       .pd-week-tg-event.done { opacity: 0.5; text-decoration: line-through; }
       .pd-week-tg-event-time { font-weight: 600; flex-shrink: 0; }
 
@@ -1878,6 +1962,15 @@ function GlobalStyle() {
       .pd-btn-secondary.pd-small { padding: 7px 11px; font-size: 12.5px; }
 
       .pd-save-warning-fixed { position: absolute; bottom: 10px; right: 14px; font-size: 11.5px; color: var(--pd-coral); background: var(--pd-coral-soft); padding: 5px 10px; border-radius: 7px; }
+
+      .pd-applock-screen { min-height: 500px; display: flex; align-items: center; justify-content: center; padding: 24px; }
+      .pd-applock-card { width: 100%; max-width: 320px; text-align: center; }
+      .pd-applock-icon { width: 52px; height: 52px; border-radius: 16px; background: var(--pd-gradient); color: white; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px; }
+      .pd-applock-title { font-family: 'Libre Franklin', sans-serif; font-weight: 700; font-size: 18px; margin-bottom: 6px; }
+      .pd-applock-sub { font-size: 12.5px; color: var(--pd-ink-muted); line-height: 1.6; margin-bottom: 18px; }
+      .pd-applock-input { width: 100%; border: none; border-radius: 9px; padding: 11px 12px; font-size: 14px; background: var(--pd-bg); color: var(--pd-ink); text-align: center; font-family: 'Inter', sans-serif; }
+      .pd-applock-input:focus-visible, .pd-applock-input:focus { outline: 2px solid var(--pd-teal); outline-offset: 1px; }
+      .pd-applock-hint { font-size: 10.5px; color: var(--pd-ink-muted); line-height: 1.6; margin-top: 16px; }
 
       .pd-sync-desc { font-size: 12.5px; color: var(--pd-ink-muted); line-height: 1.6; margin: 0 0 16px; }
       .pd-sync-message { font-size: 12.5px; color: var(--pd-teal); background: var(--pd-teal-soft); padding: 8px 10px; border-radius: 8px; margin-top: 4px; margin-bottom: 4px; }
