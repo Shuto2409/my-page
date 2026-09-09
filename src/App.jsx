@@ -24,17 +24,6 @@ import {
   Moon,
   Cloud,
 } from "lucide-react";
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-} from "recharts";
-
 const STORAGE_TASKS = "personal-dashboard:tasks";
 const STORAGE_DIARY = "personal-dashboard:diary";
 const STORAGE_NOTES = "personal-dashboard:notes";
@@ -377,7 +366,7 @@ export default function PersonalDashboard() {
           {activeView === "assignments" && (
             <AssignmentsView assignments={assignments} setAssignments={setAssignments} />
           )}
-          {activeView === "work" && workUnlocked && <WorkAnalyticsView tasks={tasks} />}
+          {activeView === "work" && workUnlocked && <WorkView tasks={tasks} setTasks={setTasks} />}
         </div>
       </div>
       {saveError && <div className="pd-save-warning-fixed">保存に失敗しました。もう一度お試しください。</div>}
@@ -1566,114 +1555,152 @@ function mondayOf(d) {
   r.setHours(0, 0, 0, 0);
   return r;
 }
-function getWeekRanges(n) {
-  const ranges = [];
-  const thisMonday = mondayOf(new Date());
-  for (let i = n - 1; i >= 0; i--) {
-    const start = addDays(thisMonday, -7 * i);
-    const end = addDays(start, 6);
-    ranges.push({ start: toDateKey(start), end: toDateKey(end), label: `${start.getMonth() + 1}/${start.getDate()}` });
+function WorkView({ tasks, setTasks }) {
+  const [formOpen, setFormOpen] = useState(false);
+  const [editingTaskId, setEditingTaskId] = useState(null);
+  const [formTitle, setFormTitle] = useState("");
+  const [formDate, setFormDate] = useState(() => toDateKey(new Date()));
+  const [formAllDay, setFormAllDay] = useState(false);
+  const [formTime, setFormTime] = useState("");
+  const [formEndTime, setFormEndTime] = useState("");
+
+  const todayKey = toDateKey(new Date());
+  const workTasks = useMemo(() => tasks.filter((t) => t.category === "work"), [tasks]);
+  const pending = useMemo(
+    () => workTasks.filter((t) => !t.done).sort((a, b) => (a.date + (a.time || "")).localeCompare(b.date + (b.time || ""))),
+    [workTasks]
+  );
+  const done = useMemo(
+    () => workTasks.filter((t) => t.done).sort((a, b) => b.date.localeCompare(a.date)),
+    [workTasks]
+  );
+  const overdueCount = pending.filter((t) => t.date < todayKey).length;
+
+  function openNew() {
+    setEditingTaskId(null);
+    setFormTitle("");
+    setFormDate(todayKey);
+    setFormAllDay(false);
+    setFormTime("");
+    setFormEndTime("");
+    setFormOpen(true);
   }
-  return ranges;
-}
-function getMonthRanges(n) {
-  const ranges = [];
-  const now = new Date();
-  for (let i = n - 1; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const start = toDateKey(d);
-    const endDate = new Date(d.getFullYear(), d.getMonth() + 1, 0);
-    ranges.push({ start, end: toDateKey(endDate), label: `${d.getMonth() + 1}月` });
+  function openEdit(task) {
+    setEditingTaskId(task.id);
+    setFormTitle(task.title);
+    setFormDate(task.date);
+    setFormAllDay(!task.time);
+    setFormTime(task.time || "");
+    setFormEndTime(task.endTime || "");
+    setFormOpen(true);
   }
-  return ranges;
-}
-function computeTrend(tasks, ranges) {
-  return ranges.map((r) => {
-    const inRange = tasks.filter((t) => t.date >= r.start && t.date <= r.end);
-    return { label: r.label, 予定: inRange.length, 完了: inRange.filter((t) => t.done).length };
-  });
-}
-function computeCategoryBreakdown(tasks) {
-  return Object.entries(CATEGORIES).map(([key, val]) => {
-    const items = tasks.filter((t) => t.category === key);
-    return { key, label: val.label, 完了: items.filter((t) => t.done).length, 未完了: items.filter((t) => !t.done).length };
-  });
-}
-
-function WorkAnalyticsView({ tasks }) {
-  const [granularity, setGranularity] = useState("week");
-
-  const total = tasks.length;
-  const done = tasks.filter((t) => t.done).length;
-  const rate = total ? Math.round((done / total) * 100) : 0;
-
-  const ranges = granularity === "week" ? getWeekRanges(8) : getMonthRanges(6);
-  const trendData = useMemo(() => computeTrend(tasks, ranges), [tasks, granularity]);
-  const categoryData = useMemo(() => computeCategoryBreakdown(tasks), [tasks]);
+  function save() {
+    if (!formTitle.trim()) return;
+    const useTime = formAllDay ? "" : formTime;
+    const validEnd = !formAllDay && useTime && formEndTime && formEndTime > useTime ? formEndTime : "";
+    if (editingTaskId) {
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.id === editingTaskId ? { ...t, title: formTitle.trim(), date: formDate, time: useTime, endTime: validEnd } : t
+        )
+      );
+    } else {
+      setTasks((prev) => [
+        ...prev,
+        { id: uid(), title: formTitle.trim(), date: formDate, time: useTime, endTime: validEnd, category: "work", done: false },
+      ]);
+    }
+    setFormOpen(false);
+  }
+  function toggleDone(id) {
+    setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, done: !t.done } : t)));
+  }
+  function deleteTask(id) {
+    setTasks((prev) => prev.filter((t) => t.id !== id));
+  }
 
   return (
     <div className="pd-view">
       <div className="pd-view-header">
-        <div className="pd-view-title">仕事の分析</div>
+        <div className="pd-view-title">仕事</div>
+        <button className="pd-quickadd-btn pd-inline" onClick={openNew}><Plus size={16} /> タスクを追加</button>
       </div>
 
-      <div className="pd-stat-row">
-        <div className="pd-stat-card">
-          <div className="pd-stat-label">完了率</div>
-          <div className="pd-stat-value">{rate}%</div>
-          <div className="pd-stat-sub">{done} / {total}件 完了</div>
-          <div className="pd-assign-bar-track" style={{ marginTop: 10 }}>
-            <div className="pd-assign-bar-fill" style={{ width: `${rate}%`, background: "var(--pd-teal)" }} />
+      {overdueCount > 0 && (
+        <div className="pd-overdue-banner" style={{ marginBottom: 16, cursor: "default" }}>
+          <AlertCircle size={15} />
+          期限切れが{overdueCount}件あります
+        </div>
+      )}
+
+      <div className="pd-section-label" style={{ marginBottom: 10 }}>未完了({pending.length})</div>
+      {pending.length === 0 ? (
+        <div className="pd-empty-note">未完了の仕事タスクはありません</div>
+      ) : (
+        <div className="pd-assign-list" style={{ marginBottom: 24 }}>
+          {pending.map((t) => (
+            <TaskRow key={t.id} task={t} onToggle={toggleDone} onDelete={deleteTask} onEdit={openEdit} showDate />
+          ))}
+        </div>
+      )}
+
+      <div className="pd-section-label" style={{ marginBottom: 10 }}>完了({done.length})</div>
+      {done.length === 0 ? (
+        <div className="pd-empty-note">完了した仕事タスクはまだありません</div>
+      ) : (
+        <div className="pd-assign-list">
+          {done.map((t) => (
+            <TaskRow key={t.id} task={t} onToggle={toggleDone} onDelete={deleteTask} onEdit={openEdit} showDate />
+          ))}
+        </div>
+      )}
+
+      {formOpen && (
+        <div className="pd-overlay" onClick={() => setFormOpen(false)}>
+          <div className="pd-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="pd-panel-header">
+              <div className="pd-panel-title">{editingTaskId ? "仕事タスクを編集" : "仕事タスクを追加"}</div>
+              <button className="pd-icon-btn" onClick={() => setFormOpen(false)} aria-label="閉じる"><X size={16} /></button>
+            </div>
+            <div className="pd-field">
+              <label htmlFor="wk-title">内容</label>
+              <input id="wk-title" type="text" placeholder="例: 提案書を送付" value={formTitle}
+                onChange={(e) => setFormTitle(e.target.value)} autoFocus
+                onKeyDown={(e) => { if (e.key === "Enter") save(); }} />
+            </div>
+            <div className="pd-field">
+              <label htmlFor="wk-date">日付</label>
+              <input id="wk-date" type="date" value={formDate} onChange={(e) => setFormDate(e.target.value)} />
+            </div>
+            <div className="pd-field">
+              <label className="pd-allday-row">
+                <input type="checkbox" checked={formAllDay} onChange={(e) => setFormAllDay(e.target.checked)} />
+                終日(時刻を指定しない)
+              </label>
+            </div>
+            {!formAllDay && (
+              <div className="pd-row2">
+                <div className="pd-field">
+                  <label htmlFor="wk-time">開始時刻</label>
+                  <input id="wk-time" type="time" step="600" value={formTime} onChange={(e) => setFormTime(e.target.value)} />
+                </div>
+                <div className="pd-field">
+                  <label htmlFor="wk-endtime">終了時刻(任意)</label>
+                  <input id="wk-endtime" type="time" step="600" value={formEndTime} min={formTime} onChange={(e) => setFormEndTime(e.target.value)} disabled={!formTime} />
+                </div>
+              </div>
+            )}
+            <div className="pd-panel-actions">
+              {editingTaskId ? (
+                <button className="pd-btn-secondary" onClick={() => { deleteTask(editingTaskId); setFormOpen(false); }}>削除</button>
+              ) : (
+                <button className="pd-btn-secondary" onClick={() => setFormOpen(false)}>キャンセル</button>
+              )}
+              <button className="pd-btn-primary" onClick={save} disabled={!formTitle.trim()}>{editingTaskId ? "更新する" : "追加する"}</button>
+            </div>
           </div>
         </div>
-        <div className="pd-stat-card">
-          <div className="pd-stat-label">総タスク数</div>
-          <div className="pd-stat-value">{total}</div>
-          <div className="pd-stat-sub">未完了 {total - done}件</div>
-        </div>
-      </div>
-
-      <div className="pd-chart-card">
-        <div className="pd-chart-card-header">
-          <div className="pd-chart-title">カテゴリ別の作業量</div>
-        </div>
-        <div style={{ width: "100%", height: 220 }}>
-          <ResponsiveContainer>
-            <BarChart data={categoryData} layout="vertical" margin={{ left: 8, right: 16, top: 8, bottom: 8 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#E4E1D8" horizontal={false} />
-              <XAxis type="number" allowDecimals={false} tick={{ fontSize: 12, fill: "#6B7280" }} axisLine={{ stroke: "#E4E1D8" }} tickLine={false} />
-              <YAxis type="category" dataKey="label" tick={{ fontSize: 12.5, fill: "#20242B" }} axisLine={{ stroke: "#E4E1D8" }} tickLine={false} width={50} />
-              <Tooltip contentStyle={{ fontSize: 12.5, borderRadius: 8, border: "1px solid #E4E1D8" }} />
-              <Legend wrapperStyle={{ fontSize: 12.5 }} />
-              <Bar dataKey="完了" stackId="a" fill="#2B6F6B" radius={[0, 0, 0, 0]} />
-              <Bar dataKey="未完了" stackId="a" fill="#D8D4C8" radius={[0, 4, 4, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      <div className="pd-chart-card">
-        <div className="pd-chart-card-header">
-          <div className="pd-chart-title">傾向</div>
-          <div className="pd-tabs">
-            <button className={"pd-tab" + (granularity === "week" ? " active" : "")} onClick={() => setGranularity("week")}>週次</button>
-            <button className={"pd-tab" + (granularity === "month" ? " active" : "")} onClick={() => setGranularity("month")}>月次</button>
-          </div>
-        </div>
-        <div style={{ width: "100%", height: 240 }}>
-          <ResponsiveContainer>
-            <BarChart data={trendData} margin={{ left: 0, right: 16, top: 8, bottom: 8 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#E4E1D8" vertical={false} />
-              <XAxis dataKey="label" tick={{ fontSize: 12, fill: "#6B7280" }} axisLine={{ stroke: "#E4E1D8" }} tickLine={false} />
-              <YAxis allowDecimals={false} tick={{ fontSize: 12, fill: "#6B7280" }} axisLine={{ stroke: "#E4E1D8" }} tickLine={false} width={28} />
-              <Tooltip contentStyle={{ fontSize: 12.5, borderRadius: 8, border: "1px solid #E4E1D8" }} />
-              <Legend wrapperStyle={{ fontSize: 12.5 }} />
-              <Bar dataKey="予定" fill="#F0EEE6" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="完了" fill="#2B6F6B" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
+      )}
     </div>
   );
 }
