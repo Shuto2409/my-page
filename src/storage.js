@@ -119,7 +119,15 @@ const storage = {
     setConfig(cfg);
   },
   async testSyncConfig(cfg) {
-    await supaFetch(cfg, "dashboard_kv?limit=1");
+    // A read-only check isn't enough: a table with Row Level Security left
+    // enabled (no policies) still returns success on SELECT but silently
+    // fails on INSERT/UPDATE. Actually try a harmless write so permission
+    // problems are caught here instead of on every real save.
+    await supaFetch(cfg, "dashboard_kv?on_conflict=key", {
+      method: "POST",
+      headers: { Prefer: "resolution=merge-duplicates" },
+      body: JSON.stringify([{ key: "__connection_test__", value: "ok", updated_at: new Date().toISOString() }]),
+    });
     return true;
   },
   async pushAllLocalToCloud(cfg) {
