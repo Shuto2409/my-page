@@ -1601,6 +1601,45 @@ function WorkView({ tasks, setTasks, workTimes, setWorkTimes }) {
     [workTimes]
   );
 
+  const weeklyAvgData = useMemo(() => {
+    const weeks = {};
+    workTimes.forEach((e) => {
+      const mon = mondayOf(parseDateKey(e.date));
+      const key = toDateKey(mon);
+      if (!weeks[key]) weeks[key] = { bf: [], lunch: [], snack: [], dinner: [] };
+      ["bf", "lunch", "snack", "dinner"].forEach((f) => {
+        if (e[f] != null) weeks[key][f].push(e[f]);
+      });
+    });
+    return Object.keys(weeks)
+      .sort()
+      .map((key) => {
+        const w = weeks[key];
+        const avg = (f) => (w[f].length ? Math.round(w[f].reduce((a, b) => a + b, 0) / w[f].length) : null);
+        const mon = parseDateKey(key);
+        return { label: `${mon.getMonth() + 1}/${mon.getDate()}週`, BF: avg("bf"), ランチ: avg("lunch"), スナック: avg("snack"), ディナー: avg("dinner") };
+      });
+  }, [workTimes]);
+
+  const monthlyAvgData = useMemo(() => {
+    const months = {};
+    workTimes.forEach((e) => {
+      const key = e.date.slice(0, 7);
+      if (!months[key]) months[key] = { bf: [], lunch: [], snack: [], dinner: [] };
+      ["bf", "lunch", "snack", "dinner"].forEach((f) => {
+        if (e[f] != null) months[key][f].push(e[f]);
+      });
+    });
+    return Object.keys(months)
+      .sort()
+      .map((key) => {
+        const m = months[key];
+        const avg = (f) => (m[f].length ? Math.round(m[f].reduce((a, b) => a + b, 0) / m[f].length) : null);
+        const [y, mo] = key.split("-");
+        return { label: `${y}/${Number(mo)}月`, BF: avg("bf"), ランチ: avg("lunch"), スナック: avg("snack"), ディナー: avg("dinner") };
+      });
+  }, [workTimes]);
+
   function addWorkTimeRow() {
     if (!newRowDate) return;
     if (workTimes.some((w) => w.date === newRowDate)) return;
@@ -1740,7 +1779,7 @@ function WorkView({ tasks, setTasks, workTimes, setWorkTimes }) {
                               type="number"
                               min="0"
                               className="pd-worktime-input"
-                              placeholder="分"
+                              placeholder="秒"
                               value={w[field] ?? ""}
                               onChange={(e) => updateWorkTimeCell(w.id, field, e.target.value)}
                             />
@@ -1757,29 +1796,28 @@ function WorkView({ tasks, setTasks, workTimes, setWorkTimes }) {
             )}
           </div>
 
+          <div className="pd-chart-card" style={{ marginBottom: 16 }}>
+            <div className="pd-chart-card-header">
+              <div className="pd-chart-title">時間帯別 作業時間の推移(秒)</div>
+            </div>
+            <MealTimeChart
+              data={chartWorkTimes.map((w) => ({ label: formatDateLabel(w.date).replace(/\(.*\)/, ""), BF: w.bf, ランチ: w.lunch, スナック: w.snack, ディナー: w.dinner }))}
+              empty="データを入力するとグラフが表示されます"
+            />
+          </div>
+
+          <div className="pd-chart-card" style={{ marginBottom: 16 }}>
+            <div className="pd-chart-card-header">
+              <div className="pd-chart-title">週平均(月曜始まり・秒)</div>
+            </div>
+            <MealTimeChart data={weeklyAvgData} empty="データを入力すると週平均グラフが表示されます" />
+          </div>
+
           <div className="pd-chart-card">
             <div className="pd-chart-card-header">
-              <div className="pd-chart-title">時間帯別 作業時間の推移(分)</div>
+              <div className="pd-chart-title">月平均(1日始まり・秒)</div>
             </div>
-            {chartWorkTimes.length === 0 ? (
-              <div className="pd-empty-note">データを入力するとグラフが表示されます</div>
-            ) : (
-              <div style={{ width: "100%", height: 280 }}>
-                <ResponsiveContainer>
-                  <LineChart data={chartWorkTimes.map((w) => ({ label: formatDateLabel(w.date).replace(/\(.*\)/, ""), BF: w.bf, ランチ: w.lunch, スナック: w.snack, ディナー: w.dinner }))} margin={{ left: 0, right: 16, top: 8, bottom: 8 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--pd-line)" vertical={false} />
-                    <XAxis dataKey="label" tick={{ fontSize: 11, fill: "var(--pd-ink-muted)" }} axisLine={{ stroke: "var(--pd-line)" }} tickLine={false} />
-                    <YAxis allowDecimals={false} tick={{ fontSize: 12, fill: "var(--pd-ink-muted)" }} axisLine={{ stroke: "var(--pd-line)" }} tickLine={false} width={32} />
-                    <Tooltip contentStyle={{ fontSize: 12.5, borderRadius: 8, border: "1px solid var(--pd-line)" }} />
-                    <Legend wrapperStyle={{ fontSize: 12.5 }} />
-                    <Line type="monotone" dataKey="BF" stroke="var(--pd-teal)" strokeWidth={2.2} dot={{ r: 3 }} connectNulls />
-                    <Line type="monotone" dataKey="ランチ" stroke="var(--pd-amber)" strokeWidth={2.2} dot={{ r: 3 }} connectNulls />
-                    <Line type="monotone" dataKey="スナック" stroke="var(--pd-purple)" strokeWidth={2.2} dot={{ r: 3 }} connectNulls />
-                    <Line type="monotone" dataKey="ディナー" stroke="var(--pd-coral)" strokeWidth={2.2} dot={{ r: 3 }} connectNulls />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            )}
+            <MealTimeChart data={monthlyAvgData} empty="データを入力すると月平均グラフが表示されます" />
           </div>
         </>
       )}
@@ -1830,6 +1868,29 @@ function WorkView({ tasks, setTasks, workTimes, setWorkTimes }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function MealTimeChart({ data, empty }) {
+  if (!data || data.length === 0) {
+    return <div className="pd-empty-note">{empty}</div>;
+  }
+  return (
+    <div style={{ width: "100%", height: 260 }}>
+      <ResponsiveContainer>
+        <LineChart data={data} margin={{ left: 0, right: 16, top: 8, bottom: 8 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="var(--pd-line)" vertical={false} />
+          <XAxis dataKey="label" tick={{ fontSize: 11, fill: "var(--pd-ink-muted)" }} axisLine={{ stroke: "var(--pd-line)" }} tickLine={false} />
+          <YAxis allowDecimals={false} tick={{ fontSize: 12, fill: "var(--pd-ink-muted)" }} axisLine={{ stroke: "var(--pd-line)" }} tickLine={false} width={32} />
+          <Tooltip contentStyle={{ fontSize: 12.5, borderRadius: 8, border: "1px solid var(--pd-line)" }} />
+          <Legend wrapperStyle={{ fontSize: 12.5 }} />
+          <Line type="monotone" dataKey="BF" stroke="var(--pd-teal)" strokeWidth={2.2} dot={{ r: 3 }} connectNulls />
+          <Line type="monotone" dataKey="ランチ" stroke="var(--pd-amber)" strokeWidth={2.2} dot={{ r: 3 }} connectNulls />
+          <Line type="monotone" dataKey="スナック" stroke="var(--pd-purple)" strokeWidth={2.2} dot={{ r: 3 }} connectNulls />
+          <Line type="monotone" dataKey="ディナー" stroke="var(--pd-coral)" strokeWidth={2.2} dot={{ r: 3 }} connectNulls />
+        </LineChart>
+      </ResponsiveContainer>
     </div>
   );
 }
