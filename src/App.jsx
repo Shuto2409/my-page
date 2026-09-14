@@ -384,7 +384,7 @@ export default function PersonalDashboard() {
             <AssignmentsView assignments={assignments} setAssignments={setAssignments} classes={classes} />
           )}
           {activeView === "classes" && (
-            <ClassesView classes={classes} setClasses={setClasses} diary={diary} assignments={assignments} />
+            <ClassesView classes={classes} setClasses={setClasses} diary={diary} setDiary={setDiary} assignments={assignments} />
           )}
           {activeView === "work" && workUnlocked && <WorkView tasks={tasks} setTasks={setTasks} workTimes={workTimes} setWorkTimes={setWorkTimes} />}
         </div>
@@ -1604,11 +1604,17 @@ function GanttChart({ items }) {
 
 const CLASS_COLORS = ["var(--pd-teal)", "var(--pd-amber)", "var(--pd-coral)", "var(--pd-purple)", "var(--pd-rose)", "var(--pd-blue)"];
 
-function ClassesView({ classes, setClasses, diary, assignments }) {
+function ClassesView({ classes, setClasses, diary, setDiary, assignments }) {
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [fName, setFName] = useState("");
   const [selectedId, setSelectedId] = useState(classes[0]?.id || null);
+
+  const [diaryFormOpen, setDiaryFormOpen] = useState(false);
+  const [dfDate, setDfDate] = useState(() => toDateKey(new Date()));
+  const [dfTitle, setDfTitle] = useState("");
+  const [dfContent, setDfContent] = useState("");
+  const [dfMood, setDfMood] = useState("neutral");
 
   const selected = classes.find((c) => c.id === selectedId) || null;
 
@@ -1620,6 +1626,15 @@ function ClassesView({ classes, setClasses, diary, assignments }) {
     () => (selected ? assignments.filter((a) => a.classId === selected.id).sort((a, b) => a.dueDate.localeCompare(b.dueDate)) : []),
     [assignments, selected]
   );
+  const diaryByWeekday = useMemo(() => {
+    const groups = Object.fromEntries(WEEKDAYS.map((w) => [w, []]));
+    relatedDiary.forEach((d) => {
+      const jsDay = parseDateKey(d.date).getDay();
+      const idx = (jsDay + 6) % 7;
+      groups[WEEKDAYS[idx]].push(d);
+    });
+    return groups;
+  }, [relatedDiary]);
 
   function openNew() {
     setEditingId(null);
@@ -1646,6 +1661,22 @@ function ClassesView({ classes, setClasses, diary, assignments }) {
   function remove(id) {
     setClasses((prev) => prev.filter((c) => c.id !== id));
     if (selectedId === id) setSelectedId(null);
+  }
+
+  function openDiaryForm() {
+    setDfDate(toDateKey(new Date()));
+    setDfTitle("");
+    setDfContent("");
+    setDfMood("neutral");
+    setDiaryFormOpen(true);
+  }
+  function saveDiary() {
+    if (!dfContent.trim() || !selected) return;
+    setDiary((prev) => [
+      ...prev,
+      { id: uid(), date: dfDate, title: dfTitle.trim(), content: dfContent.trim(), mood: dfMood, classId: selected.id },
+    ]);
+    setDiaryFormOpen(false);
   }
 
   return (
@@ -1691,6 +1722,7 @@ function ClassesView({ classes, setClasses, diary, assignments }) {
                     {selected.name}
                   </div>
                   <div style={{ display: "flex", gap: 6 }}>
+                    <button className="pd-quickadd-btn pd-inline" onClick={openDiaryForm}><Plus size={15} /> 日記を書く</button>
                     <button className="pd-icon-btn" onClick={() => openEdit(selected)} aria-label="編集"><Pencil size={15} /></button>
                     <button className="pd-icon-btn" onClick={() => remove(selected.id)} aria-label="削除"><Trash2 size={15} /></button>
                   </div>
@@ -1719,21 +1751,28 @@ function ClassesView({ classes, setClasses, diary, assignments }) {
                   </div>
                 )}
 
-                <div className="pd-section-label" style={{ margin: "22px 0 10px" }}>関連する日記({relatedDiary.length})</div>
+                <div className="pd-section-label" style={{ margin: "22px 0 10px" }}>関連する日記({relatedDiary.length})・曜日別</div>
                 {relatedDiary.length === 0 ? (
                   <div className="pd-empty-note">この授業にリンクされた日記はありません</div>
                 ) : (
-                  <div className="pd-today-list">
-                    {relatedDiary.map((d) => (
-                      <div key={d.id} className="pd-class-diary-row">
-                        <span className="pd-dot" style={{ background: MOODS[d.mood || "neutral"].color }} />
-                        <div>
-                          <div className="pd-diary-item-date">{formatDateLabel(d.date)}</div>
-                          <div className="pd-diary-item-title">{d.title || d.content.slice(0, 30)}</div>
+                  WEEKDAYS.map((wd) =>
+                    diaryByWeekday[wd].length === 0 ? null : (
+                      <div key={wd} style={{ marginBottom: 14 }}>
+                        <div className="pd-group-heading" style={{ marginTop: 0 }}>{wd}曜日({diaryByWeekday[wd].length})</div>
+                        <div className="pd-today-list">
+                          {diaryByWeekday[wd].map((d) => (
+                            <div key={d.id} className="pd-class-diary-row">
+                              <span className="pd-dot" style={{ background: MOODS[d.mood || "neutral"].color }} />
+                              <div>
+                                <div className="pd-diary-item-date">{formatDateLabel(d.date)}</div>
+                                <div className="pd-diary-item-title">{d.title || d.content.slice(0, 30)}</div>
+                              </div>
+                            </div>
+                          ))}
                         </div>
                       </div>
-                    ))}
-                  </div>
+                    )
+                  )
                 )}
               </>
             )}
@@ -1756,6 +1795,46 @@ function ClassesView({ classes, setClasses, diary, assignments }) {
             <div className="pd-panel-actions">
               <button className="pd-btn-secondary" onClick={() => setFormOpen(false)}>キャンセル</button>
               <button className="pd-btn-primary" onClick={save} disabled={!fName.trim()}>{editingId ? "更新する" : "追加する"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {diaryFormOpen && selected && (
+        <div className="pd-overlay" onClick={() => setDiaryFormOpen(false)}>
+          <div className="pd-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="pd-panel-header">
+              <div className="pd-panel-title">{selected.name}の日記を書く</div>
+              <button className="pd-icon-btn" onClick={() => setDiaryFormOpen(false)} aria-label="閉じる"><X size={16} /></button>
+            </div>
+            <div className="pd-row2">
+              <div className="pd-field">
+                <label htmlFor="cd-date">日付</label>
+                <input id="cd-date" type="date" value={dfDate} onChange={(e) => setDfDate(e.target.value)} />
+              </div>
+              <div className="pd-field">
+                <label>気分</label>
+                <div className="pd-cat-row">
+                  {Object.entries(MOODS).map(([key, val]) => (
+                    <button key={key} className={"pd-cat-btn" + (dfMood === key ? " active" : "")}
+                      style={dfMood === key ? { background: val.color, color: "#fff" } : undefined} onClick={() => setDfMood(key)}>
+                      {val.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="pd-field">
+              <label htmlFor="cd-title">タイトル(任意)</label>
+              <input id="cd-title" type="text" value={dfTitle} onChange={(e) => setDfTitle(e.target.value)} placeholder="例: 第3回講義メモ" />
+            </div>
+            <div className="pd-field">
+              <label htmlFor="cd-content">内容</label>
+              <textarea id="cd-content" rows={7} value={dfContent} onChange={(e) => setDfContent(e.target.value)} placeholder="授業の内容や気づいたことを書きましょう" autoFocus />
+            </div>
+            <div className="pd-panel-actions">
+              <button className="pd-btn-secondary" onClick={() => setDiaryFormOpen(false)}>キャンセル</button>
+              <button className="pd-btn-primary" onClick={saveDiary} disabled={!dfContent.trim()}>保存する</button>
             </div>
           </div>
         </div>
