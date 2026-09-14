@@ -1623,6 +1623,7 @@ function ClassesView({ classes, setClasses, diary, setDiary, assignments }) {
   const [editingId, setEditingId] = useState(null);
   const [fName, setFName] = useState("");
   const [selectedId, setSelectedId] = useState(classes[0]?.id || null);
+  const [scheduleEditMode, setScheduleEditMode] = useState(false);
 
   const [diaryFormOpen, setDiaryFormOpen] = useState(false);
   const [dfDate, setDfDate] = useState(() => toDateKey(new Date()));
@@ -1740,6 +1741,9 @@ function ClassesView({ classes, setClasses, diary, setDiary, assignments }) {
         <div className="pd-chart-card" style={{ marginBottom: 20 }}>
           <div className="pd-chart-card-header">
             <div className="pd-chart-title">授業日程 一覧</div>
+            <button className={"pd-icon-btn" + (scheduleEditMode ? " pd-icon-btn-active" : "")} onClick={() => setScheduleEditMode((v) => !v)} aria-label="日程を編集" title="日程を編集">
+              <Pencil size={15} />
+            </button>
           </div>
           <div className="pd-worktime-table-wrap">
             <table className="pd-worktime-table">
@@ -1747,7 +1751,7 @@ function ClassesView({ classes, setClasses, diary, setDiary, assignments }) {
                 <tr>
                   <th>授業名</th>
                   {overviewColumns.map((n) => <th key={n}>第{n}回</th>)}
-                  <th></th>
+                  {scheduleEditMode && <th></th>}
                 </tr>
               </thead>
               <tbody>
@@ -1758,28 +1762,34 @@ function ClassesView({ classes, setClasses, diary, setDiary, assignments }) {
                       <td>
                         <span className="pd-dot" style={{ background: c.color || "var(--pd-teal)" }} /> {c.name}
                       </td>
-                      {overviewColumns.map((n, i) => (
-                        <td key={n}>
-                          {sessions[i] ? (
-                            <div className="pd-session-cell">
-                              <input
-                                type="date"
-                                className="pd-select"
-                                value={sessions[i].date}
-                                onChange={(e) => updateSessionDate(c.id, sessions[i].id, e.target.value)}
-                              />
-                              <button className="pd-icon-btn" onClick={() => removeSession(c.id, sessions[i].id)} aria-label="削除">
-                                <Trash2 size={12} />
-                              </button>
-                            </div>
-                          ) : (
-                            "-"
-                          )}
+                      {overviewColumns.map((n, i) =>
+                        scheduleEditMode ? (
+                          <td key={n}>
+                            {sessions[i] ? (
+                              <div className="pd-session-cell">
+                                <input
+                                  type="date"
+                                  className="pd-select"
+                                  value={sessions[i].date}
+                                  onChange={(e) => updateSessionDate(c.id, sessions[i].id, e.target.value)}
+                                />
+                                <button className="pd-icon-btn" onClick={() => removeSession(c.id, sessions[i].id)} aria-label="削除">
+                                  <Trash2 size={12} />
+                                </button>
+                              </div>
+                            ) : (
+                              "-"
+                            )}
+                          </td>
+                        ) : (
+                          <td key={n}>{sessions[i]?.date ? formatDateLabel(sessions[i].date).replace(/\(.*\)/, "") : "-"}</td>
+                        )
+                      )}
+                      {scheduleEditMode && (
+                        <td>
+                          <button className="pd-btn-secondary pd-small" onClick={() => addSessionRow(c.id)}>+ 追加</button>
                         </td>
-                      ))}
-                      <td>
-                        <button className="pd-btn-secondary pd-small" onClick={() => addSessionRow(c.id)}>+ 追加</button>
-                      </td>
+                      )}
                     </tr>
                   );
                 })}
@@ -2473,6 +2483,7 @@ function GlobalStyle() {
       .pd-icon-btn { background: none; border: none; border-radius: 8px; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--pd-ink); }
       .pd-icon-btn:hover { background: var(--pd-bg); }
       .pd-icon-btn:focus-visible { outline: 2px solid var(--pd-teal); outline-offset: 1px; }
+      .pd-icon-btn-active { background: var(--pd-teal-soft); color: var(--pd-teal); }
       .pd-today-btn { font-size: 12.5px; font-family: 'Inter', sans-serif; font-weight: 500; border: none; background: var(--pd-bg); border-radius: 8px; padding: 7px 13px; cursor: pointer; color: var(--pd-ink); margin-right: 6px; }
       .pd-today-btn:hover { background: var(--pd-hover); }
 
