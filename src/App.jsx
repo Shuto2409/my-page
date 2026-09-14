@@ -1636,6 +1636,47 @@ function ClassesView({ classes, setClasses, diary, setDiary, assignments }) {
     return groups;
   }, [relatedDiary]);
 
+  const sortedSessions = useMemo(() => {
+    const sessions = selected?.sessions || [];
+    return [...sessions].sort((a, b) => {
+      if (!a.date && !b.date) return 0;
+      if (!a.date) return 1;
+      if (!b.date) return -1;
+      return a.date.localeCompare(b.date);
+    });
+  }, [selected]);
+
+  const sessionNumberByDate = useMemo(() => {
+    const map = {};
+    sortedSessions.forEach((s, i) => {
+      if (s.date) map[s.date] = i + 1;
+    });
+    return map;
+  }, [sortedSessions]);
+
+  function addSessionRow() {
+    if (!selected) return;
+    setClasses((prev) =>
+      prev.map((c) => (c.id === selected.id ? { ...c, sessions: [...(c.sessions || []), { id: uid(), date: "" }] } : c))
+    );
+  }
+  function updateSessionDate(sessionId, date) {
+    if (!selected) return;
+    setClasses((prev) =>
+      prev.map((c) =>
+        c.id === selected.id
+          ? { ...c, sessions: (c.sessions || []).map((s) => (s.id === sessionId ? { ...s, date } : s)) }
+          : c
+      )
+    );
+  }
+  function removeSession(sessionId) {
+    if (!selected) return;
+    setClasses((prev) =>
+      prev.map((c) => (c.id === selected.id ? { ...c, sessions: (c.sessions || []).filter((s) => s.id !== sessionId) } : c))
+    );
+  }
+
   function openNew() {
     setEditingId(null);
     setFName("");
@@ -1728,6 +1769,46 @@ function ClassesView({ classes, setClasses, diary, setDiary, assignments }) {
                   </div>
                 </div>
 
+                <div className="pd-section-label-row" style={{ margin: "18px 0 10px" }}>
+                  <span className="pd-section-label">授業日程({sortedSessions.length}回)</span>
+                  <button className="pd-btn-secondary pd-small" onClick={addSessionRow}>+ 日程を追加</button>
+                </div>
+                {sortedSessions.length === 0 ? (
+                  <div className="pd-empty-note">まだ日程がありません。「+ 日程を追加」から、補講なども含めて開催日を登録できます。</div>
+                ) : (
+                  <div className="pd-worktime-table-wrap" style={{ marginBottom: 22 }}>
+                    <table className="pd-worktime-table">
+                      <thead>
+                        <tr>
+                          <th>回</th>
+                          <th>日付</th>
+                          <th>曜日</th>
+                          <th></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sortedSessions.map((s, i) => (
+                          <tr key={s.id}>
+                            <td>第{i + 1}回</td>
+                            <td>
+                              <input
+                                type="date"
+                                className="pd-select"
+                                value={s.date}
+                                onChange={(e) => updateSessionDate(s.id, e.target.value)}
+                              />
+                            </td>
+                            <td>{s.date ? WEEKDAYS[(parseDateKey(s.date).getDay() + 6) % 7] + "曜" : "-"}</td>
+                            <td>
+                              <button className="pd-icon-btn" onClick={() => removeSession(s.id)} aria-label="削除"><Trash2 size={14} /></button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
                 <div className="pd-section-label" style={{ margin: "18px 0 10px" }}>関連する課題({relatedAssignments.length})</div>
                 {relatedAssignments.length === 0 ? (
                   <div className="pd-empty-note">この授業にリンクされた課題はありません</div>
@@ -1764,7 +1845,10 @@ function ClassesView({ classes, setClasses, diary, setDiary, assignments }) {
                             <div key={d.id} className="pd-class-diary-row">
                               <span className="pd-dot" style={{ background: MOODS[d.mood || "neutral"].color }} />
                               <div>
-                                <div className="pd-diary-item-date">{formatDateLabel(d.date)}</div>
+                                <div className="pd-diary-item-date">
+                                  {formatDateLabel(d.date)}
+                                  {sessionNumberByDate[d.date] && <span className="pd-session-tag">第{sessionNumberByDate[d.date]}回</span>}
+                                </div>
                                 <div className="pd-diary-item-title">{d.title || d.content.slice(0, 30)}</div>
                               </div>
                             </div>
@@ -2460,6 +2544,8 @@ function GlobalStyle() {
       .pd-class-detail-title { display: flex; align-items: center; gap: 8px; font-family: 'Libre Franklin', sans-serif; font-weight: 600; font-size: 18px; }
       .pd-class-diary-row { display: flex; align-items: flex-start; gap: 9px; padding: 8px 10px; border-radius: 9px; }
       .pd-class-diary-row .pd-dot { margin-top: 6px; }
+      .pd-section-label-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+      .pd-session-tag { display: inline-block; margin-left: 8px; font-size: 10px; font-weight: 600; color: var(--pd-amber); background: var(--pd-amber-soft); padding: 1px 7px; border-radius: 999px; }
 
       .pd-notes-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
       .pd-note-card { background: var(--pd-surface); border: none; border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 8px; min-height: 130px; }
