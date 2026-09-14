@@ -1604,6 +1604,13 @@ function GanttChart({ items }) {
 
 const CLASS_COLORS = ["var(--pd-teal)", "var(--pd-amber)", "var(--pd-coral)", "var(--pd-purple)", "var(--pd-rose)", "var(--pd-blue)"];
 
+function getSortedSessionDates(sessions) {
+  return [...(sessions || [])]
+    .map((s) => s.date)
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b));
+}
+
 function ClassesView({ classes, setClasses, diary, setDiary, assignments }) {
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -1635,6 +1642,12 @@ function ClassesView({ classes, setClasses, diary, setDiary, assignments }) {
     });
     return groups;
   }, [relatedDiary]);
+
+  const overviewMaxSessions = useMemo(
+    () => Math.max(0, ...classes.map((c) => (c.sessions || []).filter((s) => s.date).length)),
+    [classes]
+  );
+  const overviewColumns = useMemo(() => Array.from({ length: overviewMaxSessions }, (_, i) => i + 1), [overviewMaxSessions]);
 
   const sortedSessions = useMemo(() => {
     const sessions = selected?.sessions || [];
@@ -1726,6 +1739,43 @@ function ClassesView({ classes, setClasses, diary, setDiary, assignments }) {
         <div className="pd-view-title">授業</div>
         <button className="pd-quickadd-btn pd-inline" onClick={openNew}><Plus size={16} /> 新しい授業</button>
       </div>
+
+      {classes.length > 0 && (
+        <div className="pd-chart-card" style={{ marginBottom: 20 }}>
+          <div className="pd-chart-card-header">
+            <div className="pd-chart-title">授業日程 一覧</div>
+          </div>
+          {overviewMaxSessions === 0 ? (
+            <div className="pd-empty-note">まだどの授業にも日程が登録されていません。下の一覧から授業を選び、日程を追加してください。</div>
+          ) : (
+            <div className="pd-worktime-table-wrap">
+              <table className="pd-worktime-table">
+                <thead>
+                  <tr>
+                    <th>授業名</th>
+                    {overviewColumns.map((n) => <th key={n}>第{n}回</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  {classes.map((c) => {
+                    const dates = getSortedSessionDates(c.sessions);
+                    return (
+                      <tr key={c.id}>
+                        <td>
+                          <span className="pd-dot" style={{ background: c.color || "var(--pd-teal)" }} /> {c.name}
+                        </td>
+                        {overviewColumns.map((n, i) => (
+                          <td key={n}>{dates[i] ? formatDateLabel(dates[i]).replace(/\(.*\)/, "") : "-"}</td>
+                        ))}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {classes.length === 0 ? (
         <div className="pd-empty-note">まだ授業が登録されていません。「新しい授業」から追加すると、日記や課題をリンクできるようになります。</div>
