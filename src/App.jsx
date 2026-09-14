@@ -23,6 +23,7 @@ import {
   Sun,
   Moon,
   Cloud,
+  GraduationCap,
 } from "lucide-react";
 import {
   LineChart,
@@ -39,6 +40,7 @@ const STORAGE_TASKS = "personal-dashboard:tasks";
 const STORAGE_DIARY = "personal-dashboard:diary";
 const STORAGE_NOTES = "personal-dashboard:notes";
 const STORAGE_ASSIGN = "personal-dashboard:assignments";
+const STORAGE_CLASSES = "personal-dashboard:classes";
 const STORAGE_WORKTIMES = "personal-dashboard:worktimes";
 const STORAGE_WORKCODE = "personal-dashboard:workcode";
 const STORAGE_THEME = "personal-dashboard:theme";
@@ -65,6 +67,7 @@ const NAV_ITEMS_BASE = [
   { key: "diary", label: "日記", icon: BookOpen, color: "var(--pd-rose)", soft: "var(--pd-rose-soft)" },
   { key: "notes", label: "メモ", icon: NotebookPen, color: "var(--pd-purple)", soft: "var(--pd-purple-soft)" },
   { key: "assignments", label: "課題", icon: ListChecks, color: "var(--pd-coral)", soft: "var(--pd-coral-soft)" },
+  { key: "classes", label: "授業", icon: GraduationCap, color: "var(--pd-amber)", soft: "var(--pd-amber-soft)" },
 ];
 
 function pad(n) {
@@ -229,6 +232,7 @@ export default function PersonalDashboard() {
   const [diary, setDiary, diaryErr] = usePersistedList(STORAGE_DIARY);
   const [notes, setNotes, notesErr] = usePersistedList(STORAGE_NOTES);
   const [assignments, setAssignments, assignErr] = usePersistedList(STORAGE_ASSIGN);
+  const [classes, setClasses, classesErr] = usePersistedList(STORAGE_CLASSES);
   const [workTimes, setWorkTimes, workTimesErr] = usePersistedList(STORAGE_WORKTIMES);
   const [workCode, setWorkCode] = usePersistedValue(STORAGE_WORKCODE);
   const [workUnlocked, setWorkUnlocked] = useState(false);
@@ -245,7 +249,7 @@ export default function PersonalDashboard() {
     document.body.style.background = isDark ? "#111318" : "#EFECE3";
   }, [isDark]);
 
-  const saveError = tasksErr || diaryErr || notesErr || assignErr || workTimesErr;
+  const saveError = tasksErr || diaryErr || notesErr || assignErr || workTimesErr || classesErr;
 
   function toggleTheme() {
     setTheme(isDark ? "light" : "dark");
@@ -374,10 +378,13 @@ export default function PersonalDashboard() {
               hasCode={!!workCode}
             />
           )}
-          {activeView === "diary" && <DiaryView diary={diary} setDiary={setDiary} />}
+          {activeView === "diary" && <DiaryView diary={diary} setDiary={setDiary} classes={classes} />}
           {activeView === "notes" && <NotesView notes={notes} setNotes={setNotes} />}
           {activeView === "assignments" && (
-            <AssignmentsView assignments={assignments} setAssignments={setAssignments} />
+            <AssignmentsView assignments={assignments} setAssignments={setAssignments} classes={classes} />
+          )}
+          {activeView === "classes" && (
+            <ClassesView classes={classes} setClasses={setClasses} diary={diary} assignments={assignments} />
           )}
           {activeView === "work" && workUnlocked && <WorkView tasks={tasks} setTasks={setTasks} workTimes={workTimes} setWorkTimes={setWorkTimes} />}
         </div>
@@ -1095,7 +1102,7 @@ function TaskRow({ task, onToggle, onDelete, onEdit, showDate }) {
 
 /* ============================= DIARY ============================= */
 
-function DiaryView({ diary, setDiary }) {
+function DiaryView({ diary, setDiary, classes }) {
   const sorted = useMemo(() => [...diary].sort((a, b) => b.date.localeCompare(a.date)), [diary]);
   const [selectedId, setSelectedId] = useState(sorted[0]?.id || null);
   const [formOpen, setFormOpen] = useState(false);
@@ -1103,9 +1110,11 @@ function DiaryView({ diary, setDiary }) {
   const [fTitle, setFTitle] = useState("");
   const [fContent, setFContent] = useState("");
   const [fMood, setFMood] = useState("neutral");
+  const [fClassId, setFClassId] = useState("");
   const [editingId, setEditingId] = useState(null);
 
   const selected = diary.find((d) => d.id === selectedId) || null;
+  const classById = useMemo(() => Object.fromEntries((classes || []).map((c) => [c.id, c])), [classes]);
 
   function openNew() {
     setEditingId(null);
@@ -1113,6 +1122,7 @@ function DiaryView({ diary, setDiary }) {
     setFTitle("");
     setFContent("");
     setFMood("neutral");
+    setFClassId("");
     setFormOpen(true);
   }
   function openEdit(entry) {
@@ -1121,15 +1131,16 @@ function DiaryView({ diary, setDiary }) {
     setFTitle(entry.title);
     setFContent(entry.content);
     setFMood(entry.mood || "neutral");
+    setFClassId(entry.classId || "");
     setFormOpen(true);
   }
   function save() {
     if (!fContent.trim()) return;
     if (editingId) {
-      setDiary((prev) => prev.map((d) => (d.id === editingId ? { ...d, date: fDate, title: fTitle.trim(), content: fContent.trim(), mood: fMood } : d)));
+      setDiary((prev) => prev.map((d) => (d.id === editingId ? { ...d, date: fDate, title: fTitle.trim(), content: fContent.trim(), mood: fMood, classId: fClassId || null } : d)));
       setSelectedId(editingId);
     } else {
-      const newEntry = { id: uid(), date: fDate, title: fTitle.trim(), content: fContent.trim(), mood: fMood };
+      const newEntry = { id: uid(), date: fDate, title: fTitle.trim(), content: fContent.trim(), mood: fMood, classId: fClassId || null };
       setDiary((prev) => [...prev, newEntry]);
       setSelectedId(newEntry.id);
     }
@@ -1160,6 +1171,9 @@ function DiaryView({ diary, setDiary }) {
               <div className="pd-diary-item-body">
                 <div className="pd-diary-item-date">{formatDateLabel(entry.date)}</div>
                 <div className="pd-diary-item-title">{entry.title || entry.content.slice(0, 20)}</div>
+                {entry.classId && classById[entry.classId] && (
+                  <div className="pd-class-badge">{classById[entry.classId].name}</div>
+                )}
               </div>
             </button>
           ))}
@@ -1174,6 +1188,9 @@ function DiaryView({ diary, setDiary }) {
                 <div>
                   <div className="pd-diary-detail-date">{formatDateLabel(selected.date)}</div>
                   {selected.title && <div className="pd-diary-detail-title">{selected.title}</div>}
+                  {selected.classId && classById[selected.classId] && (
+                    <div className="pd-class-badge" style={{ marginTop: 6 }}>{classById[selected.classId].name}</div>
+                  )}
                 </div>
                 <div style={{ display: "flex", gap: 6 }}>
                   <button className="pd-icon-btn" onClick={() => openEdit(selected)} aria-label="編集"><Pencil size={15} /></button>
@@ -1210,6 +1227,15 @@ function DiaryView({ diary, setDiary }) {
                 </div>
               </div>
             </div>
+            {classes && classes.length > 0 && (
+              <div className="pd-field">
+                <label htmlFor="dy-class">授業(任意)</label>
+                <select id="dy-class" className="pd-select" style={{ width: "100%" }} value={fClassId} onChange={(e) => setFClassId(e.target.value)}>
+                  <option value="">リンクしない</option>
+                  {classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+            )}
             <div className="pd-field">
               <label htmlFor="dy-title">タイトル(任意)</label>
               <input id="dy-title" type="text" value={fTitle} onChange={(e) => setFTitle(e.target.value)} placeholder="例: 週の振り返り" />
@@ -1344,13 +1370,16 @@ function urgencyWidth(days) {
   return Math.max(6, 100 - (clamped / 30) * 100);
 }
 
-function AssignmentsView({ assignments, setAssignments }) {
+function AssignmentsView({ assignments, setAssignments, classes }) {
   const [mode, setMode] = useState("list"); // "list" | "gantt"
   const [formOpen, setFormOpen] = useState(false);
   const [fTitle, setFTitle] = useState("");
   const [fCourse, setFCourse] = useState("");
+  const [fClassId, setFClassId] = useState("");
   const [fStart, setFStart] = useState(() => toDateKey(new Date()));
   const [fDue, setFDue] = useState(() => toDateKey(new Date()));
+
+  const classById = useMemo(() => Object.fromEntries((classes || []).map((c) => [c.id, c])), [classes]);
 
   const pending = useMemo(
     () => assignments.filter((a) => a.status !== "submitted").sort((a, b) => a.dueDate.localeCompare(b.dueDate)),
@@ -1365,9 +1394,10 @@ function AssignmentsView({ assignments, setAssignments }) {
   function add() {
     if (!fTitle.trim() || !fDue) return;
     const start = fStart && fStart <= fDue ? fStart : fDue;
-    setAssignments((prev) => [...prev, { id: uid(), title: fTitle.trim(), course: fCourse.trim(), startDate: start, dueDate: fDue, status: "pending" }]);
+    setAssignments((prev) => [...prev, { id: uid(), title: fTitle.trim(), course: fCourse.trim(), classId: fClassId || null, startDate: start, dueDate: fDue, status: "pending" }]);
     setFTitle("");
     setFCourse("");
+    setFClassId("");
     setFormOpen(false);
   }
   function toggleStatus(id) {
@@ -1410,6 +1440,7 @@ function AssignmentsView({ assignments, setAssignments }) {
                       <div>
                         <div className="pd-assign-title">{a.title}</div>
                         {a.course && <div className="pd-assign-course">{a.course}</div>}
+                        {a.classId && classById[a.classId] && <div className="pd-class-badge" style={{ marginTop: 4 }}>{classById[a.classId].name}</div>}
                       </div>
                       <div className="pd-assign-actions">
                         <button className="pd-btn-secondary pd-small" onClick={() => toggleStatus(a.id)}>提出済みにする</button>
@@ -1439,6 +1470,7 @@ function AssignmentsView({ assignments, setAssignments }) {
                       <div>
                         <div className="pd-assign-title">{a.title}</div>
                         {a.course && <div className="pd-assign-course">{a.course}</div>}
+                        {a.classId && classById[a.classId] && <div className="pd-class-badge" style={{ marginTop: 4 }}>{classById[a.classId].name}</div>}
                       </div>
                       <div className="pd-assign-actions">
                         <button className="pd-btn-secondary pd-small" onClick={() => toggleStatus(a.id)}>未提出に戻す</button>
@@ -1470,6 +1502,15 @@ function AssignmentsView({ assignments, setAssignments }) {
               <label htmlFor="as-title">課題名</label>
               <input id="as-title" type="text" value={fTitle} onChange={(e) => setFTitle(e.target.value)} placeholder="例: レポート提出" autoFocus />
             </div>
+            {classes && classes.length > 0 && (
+              <div className="pd-field">
+                <label htmlFor="as-class">授業(任意)</label>
+                <select id="as-class" className="pd-select" style={{ width: "100%" }} value={fClassId} onChange={(e) => setFClassId(e.target.value)}>
+                  <option value="">リンクしない</option>
+                  {classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+            )}
             <div className="pd-field">
               <label htmlFor="as-course">科目・カテゴリ(任意)</label>
               <input id="as-course" type="text" value={fCourse} onChange={(e) => setFCourse(e.target.value)} placeholder="例: 経済学" />
@@ -1555,6 +1596,170 @@ function GanttChart({ items }) {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ============================= CLASSES ============================= */
+
+const CLASS_COLORS = ["var(--pd-teal)", "var(--pd-amber)", "var(--pd-coral)", "var(--pd-purple)", "var(--pd-rose)", "var(--pd-blue)"];
+
+function ClassesView({ classes, setClasses, diary, assignments }) {
+  const [formOpen, setFormOpen] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [fName, setFName] = useState("");
+  const [selectedId, setSelectedId] = useState(classes[0]?.id || null);
+
+  const selected = classes.find((c) => c.id === selectedId) || null;
+
+  const relatedDiary = useMemo(
+    () => (selected ? diary.filter((d) => d.classId === selected.id).sort((a, b) => b.date.localeCompare(a.date)) : []),
+    [diary, selected]
+  );
+  const relatedAssignments = useMemo(
+    () => (selected ? assignments.filter((a) => a.classId === selected.id).sort((a, b) => a.dueDate.localeCompare(b.dueDate)) : []),
+    [assignments, selected]
+  );
+
+  function openNew() {
+    setEditingId(null);
+    setFName("");
+    setFormOpen(true);
+  }
+  function openEdit(c) {
+    setEditingId(c.id);
+    setFName(c.name);
+    setFormOpen(true);
+  }
+  function save() {
+    if (!fName.trim()) return;
+    if (editingId) {
+      setClasses((prev) => prev.map((c) => (c.id === editingId ? { ...c, name: fName.trim() } : c)));
+    } else {
+      const color = CLASS_COLORS[classes.length % CLASS_COLORS.length];
+      const newClass = { id: uid(), name: fName.trim(), color };
+      setClasses((prev) => [...prev, newClass]);
+      setSelectedId(newClass.id);
+    }
+    setFormOpen(false);
+  }
+  function remove(id) {
+    setClasses((prev) => prev.filter((c) => c.id !== id));
+    if (selectedId === id) setSelectedId(null);
+  }
+
+  return (
+    <div className="pd-view">
+      <div className="pd-view-header">
+        <div className="pd-view-title">授業</div>
+        <button className="pd-quickadd-btn pd-inline" onClick={openNew}><Plus size={16} /> 新しい授業</button>
+      </div>
+
+      {classes.length === 0 ? (
+        <div className="pd-empty-note">まだ授業が登録されていません。「新しい授業」から追加すると、日記や課題をリンクできるようになります。</div>
+      ) : (
+        <div className="pd-class-shell">
+          <div className="pd-class-list">
+            {classes.map((c) => {
+              const diaryCount = diary.filter((d) => d.classId === c.id).length;
+              const assignCount = assignments.filter((a) => a.classId === c.id).length;
+              return (
+                <button
+                  key={c.id}
+                  className={"pd-class-item" + (c.id === selectedId ? " active" : "")}
+                  onClick={() => setSelectedId(c.id)}
+                  style={c.id === selectedId ? { background: (c.color || "var(--pd-teal)") + "22" } : undefined}
+                >
+                  <span className="pd-dot" style={{ background: c.color || "var(--pd-teal)" }} />
+                  <div className="pd-class-item-body">
+                    <div className="pd-class-item-name">{c.name}</div>
+                    <div className="pd-class-item-sub">日記{diaryCount}・課題{assignCount}</div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="pd-class-detail">
+            {!selected ? (
+              <div className="pd-empty-note">左の一覧から授業を選んでください</div>
+            ) : (
+              <>
+                <div className="pd-class-detail-header">
+                  <div className="pd-class-detail-title">
+                    <span className="pd-dot" style={{ background: selected.color || "var(--pd-teal)" }} />
+                    {selected.name}
+                  </div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button className="pd-icon-btn" onClick={() => openEdit(selected)} aria-label="編集"><Pencil size={15} /></button>
+                    <button className="pd-icon-btn" onClick={() => remove(selected.id)} aria-label="削除"><Trash2 size={15} /></button>
+                  </div>
+                </div>
+
+                <div className="pd-section-label" style={{ margin: "18px 0 10px" }}>関連する課題({relatedAssignments.length})</div>
+                {relatedAssignments.length === 0 ? (
+                  <div className="pd-empty-note">この授業にリンクされた課題はありません</div>
+                ) : (
+                  <div className="pd-assign-list">
+                    {relatedAssignments.map((a) => {
+                      const d = daysUntil(a.dueDate);
+                      const color = a.status === "submitted" ? "var(--pd-ink-muted)" : urgencyColor(d);
+                      return (
+                        <div key={a.id} className={"pd-assign-card" + (a.status === "submitted" ? " submitted" : "")}>
+                          <div className="pd-assign-top">
+                            <div className="pd-assign-title">{a.title}</div>
+                          </div>
+                          <div className="pd-assign-meta">
+                            <span style={{ color }}>{a.status === "submitted" ? "提出済み" : urgencyLabel(d)}</span>
+                            <span className="pd-assign-date">{formatDateLabel(a.dueDate)}締切</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <div className="pd-section-label" style={{ margin: "22px 0 10px" }}>関連する日記({relatedDiary.length})</div>
+                {relatedDiary.length === 0 ? (
+                  <div className="pd-empty-note">この授業にリンクされた日記はありません</div>
+                ) : (
+                  <div className="pd-today-list">
+                    {relatedDiary.map((d) => (
+                      <div key={d.id} className="pd-class-diary-row">
+                        <span className="pd-dot" style={{ background: MOODS[d.mood || "neutral"].color }} />
+                        <div>
+                          <div className="pd-diary-item-date">{formatDateLabel(d.date)}</div>
+                          <div className="pd-diary-item-title">{d.title || d.content.slice(0, 30)}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {formOpen && (
+        <div className="pd-overlay" onClick={() => setFormOpen(false)}>
+          <div className="pd-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="pd-panel-header">
+              <div className="pd-panel-title">{editingId ? "授業を編集" : "新しい授業"}</div>
+              <button className="pd-icon-btn" onClick={() => setFormOpen(false)} aria-label="閉じる"><X size={16} /></button>
+            </div>
+            <div className="pd-field">
+              <label htmlFor="cl-name">授業名</label>
+              <input id="cl-name" type="text" value={fName} onChange={(e) => setFName(e.target.value)} placeholder="例: 経済学概論" autoFocus
+                onKeyDown={(e) => { if (e.key === "Enter") save(); }} />
+            </div>
+            <div className="pd-panel-actions">
+              <button className="pd-btn-secondary" onClick={() => setFormOpen(false)}>キャンセル</button>
+              <button className="pd-btn-primary" onClick={save} disabled={!fName.trim()}>{editingId ? "更新する" : "追加する"}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2160,6 +2365,22 @@ function GlobalStyle() {
       .pd-diary-detail-date { font-size: 12.5px; color: var(--pd-ink-muted); }
       .pd-diary-detail-title { font-family: 'Libre Franklin', sans-serif; font-weight: 600; font-size: 18px; margin-top: 2px; }
       .pd-diary-detail-content { font-size: 14.5px; line-height: 1.8; white-space: pre-wrap; }
+
+      .pd-class-badge { display: inline-flex; align-items: center; font-size: 10.5px; font-weight: 500; color: var(--pd-amber); background: var(--pd-amber-soft); padding: 2px 8px; border-radius: 999px; width: fit-content; }
+      .pd-class-shell { display: grid; grid-template-columns: 240px 1fr; gap: 24px; min-height: 400px; }
+      @media (max-width: 700px) { .pd-class-shell { grid-template-columns: 1fr; } }
+      .pd-class-list { display: flex; flex-direction: column; gap: 4px; border-right: 1px solid var(--pd-line); padding-right: 18px; }
+      @media (max-width: 700px) { .pd-class-list { border-right: none; padding-right: 0; } }
+      .pd-class-item { display: flex; align-items: flex-start; gap: 9px; background: none; border: none; text-align: left; padding: 10px 10px; border-radius: 9px; cursor: pointer; }
+      .pd-class-item:hover { background: var(--pd-bg); }
+      .pd-class-item .pd-dot { margin-top: 5px; }
+      .pd-class-item-name { font-size: 13.5px; font-weight: 500; }
+      .pd-class-item-sub { font-size: 11px; color: var(--pd-ink-muted); margin-top: 2px; }
+      .pd-class-detail { padding: 4px 8px; }
+      .pd-class-detail-header { display: flex; align-items: flex-start; justify-content: space-between; }
+      .pd-class-detail-title { display: flex; align-items: center; gap: 8px; font-family: 'Libre Franklin', sans-serif; font-weight: 600; font-size: 18px; }
+      .pd-class-diary-row { display: flex; align-items: flex-start; gap: 9px; padding: 8px 10px; border-radius: 9px; }
+      .pd-class-diary-row .pd-dot { margin-top: 6px; }
 
       .pd-notes-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
       .pd-note-card { background: var(--pd-surface); border: none; border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 8px; min-height: 130px; }
