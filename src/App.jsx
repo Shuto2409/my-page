@@ -1604,11 +1604,18 @@ function GanttChart({ items }) {
 
 const CLASS_COLORS = ["var(--pd-teal)", "var(--pd-amber)", "var(--pd-coral)", "var(--pd-purple)", "var(--pd-rose)", "var(--pd-blue)"];
 
+function getSortedSessions(sessions) {
+  return [...(sessions || [])].sort((a, b) => {
+    if (!a.date && !b.date) return 0;
+    if (!a.date) return 1;
+    if (!b.date) return -1;
+    return a.date.localeCompare(b.date);
+  });
+}
 function getSortedSessionDates(sessions) {
-  return [...(sessions || [])]
+  return getSortedSessions(sessions)
     .map((s) => s.date)
-    .filter(Boolean)
-    .sort((a, b) => a.localeCompare(b));
+    .filter(Boolean);
 }
 
 function ClassesView({ classes, setClasses, diary, setDiary, assignments }) {
@@ -1644,20 +1651,12 @@ function ClassesView({ classes, setClasses, diary, setDiary, assignments }) {
   }, [relatedDiary]);
 
   const overviewMaxSessions = useMemo(
-    () => Math.max(0, ...classes.map((c) => (c.sessions || []).filter((s) => s.date).length)),
+    () => Math.max(0, ...classes.map((c) => (c.sessions || []).length)),
     [classes]
   );
   const overviewColumns = useMemo(() => Array.from({ length: overviewMaxSessions }, (_, i) => i + 1), [overviewMaxSessions]);
 
-  const sortedSessions = useMemo(() => {
-    const sessions = selected?.sessions || [];
-    return [...sessions].sort((a, b) => {
-      if (!a.date && !b.date) return 0;
-      if (!a.date) return 1;
-      if (!b.date) return -1;
-      return a.date.localeCompare(b.date);
-    });
-  }, [selected]);
+  const sortedSessions = useMemo(() => getSortedSessions(selected?.sessions), [selected]);
 
   const sessionNumberByDate = useMemo(() => {
     const map = {};
@@ -1667,26 +1666,23 @@ function ClassesView({ classes, setClasses, diary, setDiary, assignments }) {
     return map;
   }, [sortedSessions]);
 
-  function addSessionRow() {
-    if (!selected) return;
+  function addSessionRow(classId) {
     setClasses((prev) =>
-      prev.map((c) => (c.id === selected.id ? { ...c, sessions: [...(c.sessions || []), { id: uid(), date: "" }] } : c))
+      prev.map((c) => (c.id === classId ? { ...c, sessions: [...(c.sessions || []), { id: uid(), date: "" }] } : c))
     );
   }
-  function updateSessionDate(sessionId, date) {
-    if (!selected) return;
+  function updateSessionDate(classId, sessionId, date) {
     setClasses((prev) =>
       prev.map((c) =>
-        c.id === selected.id
+        c.id === classId
           ? { ...c, sessions: (c.sessions || []).map((s) => (s.id === sessionId ? { ...s, date } : s)) }
           : c
       )
     );
   }
-  function removeSession(sessionId) {
-    if (!selected) return;
+  function removeSession(classId, sessionId) {
     setClasses((prev) =>
-      prev.map((c) => (c.id === selected.id ? { ...c, sessions: (c.sessions || []).filter((s) => s.id !== sessionId) } : c))
+      prev.map((c) => (c.id === classId ? { ...c, sessions: (c.sessions || []).filter((s) => s.id !== sessionId) } : c))
     );
   }
 
@@ -1745,35 +1741,51 @@ function ClassesView({ classes, setClasses, diary, setDiary, assignments }) {
           <div className="pd-chart-card-header">
             <div className="pd-chart-title">授業日程 一覧</div>
           </div>
-          {overviewMaxSessions === 0 ? (
-            <div className="pd-empty-note">まだどの授業にも日程が登録されていません。下の一覧から授業を選び、日程を追加してください。</div>
-          ) : (
-            <div className="pd-worktime-table-wrap">
-              <table className="pd-worktime-table">
-                <thead>
-                  <tr>
-                    <th>授業名</th>
-                    {overviewColumns.map((n) => <th key={n}>第{n}回</th>)}
-                  </tr>
-                </thead>
-                <tbody>
-                  {classes.map((c) => {
-                    const dates = getSortedSessionDates(c.sessions);
-                    return (
-                      <tr key={c.id}>
-                        <td>
-                          <span className="pd-dot" style={{ background: c.color || "var(--pd-teal)" }} /> {c.name}
+          <div className="pd-worktime-table-wrap">
+            <table className="pd-worktime-table">
+              <thead>
+                <tr>
+                  <th>授業名</th>
+                  {overviewColumns.map((n) => <th key={n}>第{n}回</th>)}
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {classes.map((c) => {
+                  const sessions = getSortedSessions(c.sessions);
+                  return (
+                    <tr key={c.id}>
+                      <td>
+                        <span className="pd-dot" style={{ background: c.color || "var(--pd-teal)" }} /> {c.name}
+                      </td>
+                      {overviewColumns.map((n, i) => (
+                        <td key={n}>
+                          {sessions[i] ? (
+                            <div className="pd-session-cell">
+                              <input
+                                type="date"
+                                className="pd-select"
+                                value={sessions[i].date}
+                                onChange={(e) => updateSessionDate(c.id, sessions[i].id, e.target.value)}
+                              />
+                              <button className="pd-icon-btn" onClick={() => removeSession(c.id, sessions[i].id)} aria-label="削除">
+                                <Trash2 size={12} />
+                              </button>
+                            </div>
+                          ) : (
+                            "-"
+                          )}
                         </td>
-                        {overviewColumns.map((n, i) => (
-                          <td key={n}>{dates[i] ? formatDateLabel(dates[i]).replace(/\(.*\)/, "") : "-"}</td>
-                        ))}
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
+                      ))}
+                      <td>
+                        <button className="pd-btn-secondary pd-small" onClick={() => addSessionRow(c.id)}>+ 追加</button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
@@ -1819,45 +1831,6 @@ function ClassesView({ classes, setClasses, diary, setDiary, assignments }) {
                   </div>
                 </div>
 
-                <div className="pd-section-label-row" style={{ margin: "18px 0 10px" }}>
-                  <span className="pd-section-label">授業日程({sortedSessions.length}回)</span>
-                  <button className="pd-btn-secondary pd-small" onClick={addSessionRow}>+ 日程を追加</button>
-                </div>
-                {sortedSessions.length === 0 ? (
-                  <div className="pd-empty-note">まだ日程がありません。「+ 日程を追加」から、補講なども含めて開催日を登録できます。</div>
-                ) : (
-                  <div className="pd-worktime-table-wrap" style={{ marginBottom: 22 }}>
-                    <table className="pd-worktime-table">
-                      <thead>
-                        <tr>
-                          <th>回</th>
-                          <th>日付</th>
-                          <th>曜日</th>
-                          <th></th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {sortedSessions.map((s, i) => (
-                          <tr key={s.id}>
-                            <td>第{i + 1}回</td>
-                            <td>
-                              <input
-                                type="date"
-                                className="pd-select"
-                                value={s.date}
-                                onChange={(e) => updateSessionDate(s.id, e.target.value)}
-                              />
-                            </td>
-                            <td>{s.date ? WEEKDAYS[(parseDateKey(s.date).getDay() + 6) % 7] + "曜" : "-"}</td>
-                            <td>
-                              <button className="pd-icon-btn" onClick={() => removeSession(s.id)} aria-label="削除"><Trash2 size={14} /></button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
 
                 <div className="pd-section-label" style={{ margin: "18px 0 10px" }}>関連する課題({relatedAssignments.length})</div>
                 {relatedAssignments.length === 0 ? (
@@ -2596,6 +2569,8 @@ function GlobalStyle() {
       .pd-class-diary-row .pd-dot { margin-top: 6px; }
       .pd-section-label-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
       .pd-session-tag { display: inline-block; margin-left: 8px; font-size: 10px; font-weight: 600; color: var(--pd-amber); background: var(--pd-amber-soft); padding: 1px 7px; border-radius: 999px; }
+      .pd-session-cell { display: flex; align-items: center; gap: 2px; }
+      .pd-session-cell .pd-select { padding: 5px 7px; }
 
       .pd-notes-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
       .pd-note-card { background: var(--pd-surface); border: none; border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 8px; min-height: 130px; }
