@@ -1,11 +1,15 @@
 // Storage shim used by the app's window.storage.get/set/delete/list calls.
 //
-// By default everything is stored in the browser's localStorage (single
-// device only). If the person connects a free Supabase project (see the
-// in-app "sync" settings), every write is also sent to a small key-value
-// table there, and reads prefer the cloud copy when it's reachable. That's
-// what makes the same data show up on a second device: both devices point
-// at the same Supabase project.
+// This app ships with a default Supabase connection baked in below, so any
+// device that opens it automatically shares the same data — no manual
+// setup needed. The in-app "sync" panel can still override this with a
+// different project, or turn sync off entirely (local-only on that device).
+//
+// Baked-in default connection (chosen by the app's owner):
+const DEFAULT_SYNC_CONFIG = {
+  url: "https://getdqdhqnydmhhdvydna.supabase.co",
+  key: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdldGRxZGhxbnlkbWhoZHZ5ZG5hIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg5MDI2NjYsImV4cCI6MjEwNDQ3ODY2Nn0.yTc10-0fm3xwR9nNvjG4bwjro1iVXayyfibCnVWIQKI",
+};
 
 const CONFIG_KEY = "pd_sync_config";
 
@@ -16,15 +20,20 @@ function scopedKey(key, shared) {
 function getConfig() {
   try {
     const raw = localStorage.getItem(CONFIG_KEY);
-    return raw ? JSON.parse(raw) : null;
+    // Never touched on this device -> use the baked-in default automatically.
+    if (raw === null) return DEFAULT_SYNC_CONFIG;
+    // Explicitly set (including an explicit "disconnected" / null) -> honor it.
+    return JSON.parse(raw);
   } catch {
-    return null;
+    return DEFAULT_SYNC_CONFIG;
   }
 }
 
 function setConfig(cfg) {
-  if (cfg) localStorage.setItem(CONFIG_KEY, JSON.stringify(cfg));
-  else localStorage.removeItem(CONFIG_KEY);
+  // Store an explicit null rather than removing the key, so "disconnected"
+  // is distinguishable from "never configured" (which falls back to the
+  // baked-in default above).
+  localStorage.setItem(CONFIG_KEY, JSON.stringify(cfg));
 }
 
 function cleanUrl(url) {
