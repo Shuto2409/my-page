@@ -1216,7 +1216,7 @@ function compressImageFile(file, maxDim = 1100, quality = 0.75) {
 const DIARY_MAX_PHOTOS = 4;
 
 function DiaryView({ diary, setDiary, classes }) {
-  const sorted = useMemo(() => [...diary].sort((a, b) => b.date.localeCompare(a.date)), [diary]);
+  const sorted = useMemo(() => [...diary].filter((d) => !d.classId).sort((a, b) => b.date.localeCompare(a.date)), [diary]);
   const [selectedId, setSelectedId] = useState(sorted[0]?.id || null);
   const [formOpen, setFormOpen] = useState(false);
   const [fDate, setFDate] = useState(() => toDateKey(new Date()));
@@ -1394,15 +1394,6 @@ function DiaryView({ diary, setDiary, classes }) {
                 </div>
               </div>
             </div>
-            {classes && classes.length > 0 && (
-              <div className="pd-field">
-                <label htmlFor="dy-class">授業(任意)</label>
-                <select id="dy-class" className="pd-select" style={{ width: "100%" }} value={fClassId} onChange={(e) => setFClassId(e.target.value)}>
-                  <option value="">リンクしない</option>
-                  {classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
-              </div>
-            )}
             <div className="pd-field">
               <label htmlFor="dy-title">タイトル(任意)</label>
               <input id="dy-title" type="text" value={fTitle} onChange={(e) => setFTitle(e.target.value)} placeholder="例: 週の振り返り" />
@@ -1814,10 +1805,15 @@ function ClassesView({ classes, setClasses, diary, setDiary, assignments }) {
   const [scheduleEditMode, setScheduleEditMode] = useState(false);
 
   const [diaryFormOpen, setDiaryFormOpen] = useState(false);
+  const [editingDiaryId, setEditingDiaryId] = useState(null);
   const [dfDate, setDfDate] = useState(() => toDateKey(new Date()));
   const [dfTitle, setDfTitle] = useState("");
   const [dfContent, setDfContent] = useState("");
   const [dfMood, setDfMood] = useState("neutral");
+  const [dfPhotos, setDfPhotos] = useState([]);
+  const [dfPhotoBusy, setDfPhotoBusy] = useState(false);
+  const [dfPhotoError, setDfPhotoError] = useState("");
+  const [lightboxSrc, setLightboxSrc] = useState(null);
 
   const selected = classes.find((c) => c.id === selectedId) || null;
 
@@ -1903,19 +1899,72 @@ function ClassesView({ classes, setClasses, diary, setDiary, assignments }) {
   }
 
   function openDiaryForm() {
+    setEditingDiaryId(null);
     setDfDate(toDateKey(new Date()));
     setDfTitle("");
     setDfContent("");
     setDfMood("neutral");
+    setDfPhotos([]);
+    setDfPhotoError("");
     setDiaryFormOpen(true);
+  }
+  function openEditDiary(entry) {
+    setEditingDiaryId(entry.id);
+    setDfDate(entry.date);
+    setDfTitle(entry.title);
+    setDfContent(entry.content);
+    setDfMood(entry.mood || "neutral");
+    setDfPhotos(entry.photos || []);
+    setDfPhotoError("");
+    setDiaryFormOpen(true);
+  }
+  async function handleDfPhotoSelect(e) {
+    const files = Array.from(e.target.files || []);
+    e.target.value = "";
+    if (files.length === 0) return;
+    setDfPhotoError("");
+    const room = DIARY_MAX_PHOTOS - dfPhotos.length;
+    if (room <= 0) {
+      setDfPhotoError(`写真は1つの日記につき最大${DIARY_MAX_PHOTOS}枚までです`);
+      return;
+    }
+    setDfPhotoBusy(true);
+    try {
+      const toProcess = files.slice(0, room);
+      const compressed = await Promise.all(toProcess.map((f) => compressImageFile(f)));
+      setDfPhotos((prev) => [...prev, ...compressed]);
+      if (files.length > room) {
+        setDfPhotoError(`写真は1つの日記につき最大${DIARY_MAX_PHOTOS}枚までです`);
+      }
+    } catch (err) {
+      setDfPhotoError("写真の読み込みに失敗しました");
+    } finally {
+      setDfPhotoBusy(false);
+    }
+  }
+  function removeDfPhoto(index) {
+    setDfPhotos((prev) => prev.filter((_, i) => i !== index));
   }
   function saveDiary() {
     if (!dfContent.trim() || !selected) return;
-    setDiary((prev) => [
-      ...prev,
-      { id: uid(), date: dfDate, title: dfTitle.trim(), content: dfContent.trim(), mood: dfMood, classId: selected.id },
-    ]);
+    if (editingDiaryId) {
+      setDiary((prev) =>
+        prev.map((d) =>
+          d.id === editingDiaryId
+            ? { ...d, date: dfDate, title: dfTitle.trim(), content: dfContent.trim(), mood: dfMood, photos: dfPhotos }
+            : d
+        )
+      );
+    } else {
+      setDiary((prev) => [
+        ...prev,
+        { id: uid(), date: dfDate, title: dfTitle.trim(), content: dfContent.trim(), mood: dfMood, classId: selected.id, photos: dfPhotos },
+      ]);
+    }
     setDiaryFormOpen(false);
+  }
+  function removeDiaryEntry(id) {
+    setDiary((prev) => prev.filter((d) => d.id !== id));
   }
 
   return (
@@ -2061,17 +2110,33 @@ function ClassesView({ classes, setClasses, diary, setDiary, assignments }) {
                     diaryByWeekday[wd].length === 0 ? null : (
                       <div key={wd} style={{ marginBottom: 14 }}>
                         <div className="pd-group-heading" style={{ marginTop: 0 }}>{wd}曜日({diaryByWeekday[wd].length})</div>
-                        <div className="pd-today-list">
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                           {diaryByWeekday[wd].map((d) => (
-                            <div key={d.id} className="pd-class-diary-row">
-                              <span className="pd-dot" style={{ background: MOODS[d.mood || "neutral"].color }} />
-                              <div>
-                                <div className="pd-diary-item-date">
-                                  {formatDateLabel(d.date)}
-                                  {sessionNumberByDate[d.date] && <span className="pd-session-tag">第{sessionNumberByDate[d.date]}回</span>}
+                            <div key={d.id} className="pd-class-diary-card">
+                              <div className="pd-class-diary-card-header">
+                                <div className="pd-class-diary-row">
+                                  <span className="pd-dot" style={{ background: MOODS[d.mood || "neutral"].color }} />
+                                  <div>
+                                    <div className="pd-diary-item-date">
+                                      {formatDateLabel(d.date)}
+                                      {sessionNumberByDate[d.date] && <span className="pd-session-tag">第{sessionNumberByDate[d.date]}回</span>}
+                                    </div>
+                                    {d.title && <div className="pd-diary-item-title">{d.title}</div>}
+                                  </div>
                                 </div>
-                                <div className="pd-diary-item-title">{d.title || d.content.slice(0, 30)}</div>
+                                <div style={{ display: "flex", gap: 4 }}>
+                                  <button className="pd-icon-btn" onClick={() => openEditDiary(d)} aria-label="編集"><Pencil size={13} /></button>
+                                  <button className="pd-icon-btn" onClick={() => removeDiaryEntry(d.id)} aria-label="削除"><Trash2 size={13} /></button>
+                                </div>
                               </div>
+                              <div className="pd-class-diary-content">{d.content}</div>
+                              {d.photos && d.photos.length > 0 && (
+                                <div className="pd-photo-gallery">
+                                  {d.photos.map((src, i) => (
+                                    <img key={i} src={src} alt="" className="pd-photo-thumb" onClick={() => setLightboxSrc(src)} />
+                                  ))}
+                                </div>
+                              )}
                             </div>
                           ))}
                         </div>
@@ -2109,7 +2174,7 @@ function ClassesView({ classes, setClasses, diary, setDiary, assignments }) {
         <div className="pd-overlay" onClick={() => setDiaryFormOpen(false)}>
           <div className="pd-panel" onClick={(e) => e.stopPropagation()}>
             <div className="pd-panel-header">
-              <div className="pd-panel-title">{selected.name}の日記を書く</div>
+              <div className="pd-panel-title">{editingDiaryId ? `${selected.name}の日記を編集` : `${selected.name}の日記を書く`}</div>
               <button className="pd-icon-btn" onClick={() => setDiaryFormOpen(false)} aria-label="閉じる"><X size={16} /></button>
             </div>
             <div className="pd-row2">
@@ -2137,11 +2202,38 @@ function ClassesView({ classes, setClasses, diary, setDiary, assignments }) {
               <label htmlFor="cd-content">内容</label>
               <textarea id="cd-content" rows={7} value={dfContent} onChange={(e) => setDfContent(e.target.value)} placeholder="授業の内容や気づいたことを書きましょう" autoFocus />
             </div>
+            <div className="pd-field">
+              <label>写真(任意・最大{DIARY_MAX_PHOTOS}枚)</label>
+              {dfPhotos.length > 0 && (
+                <div className="pd-photo-edit-grid">
+                  {dfPhotos.map((src, i) => (
+                    <div key={i} className="pd-photo-edit-item">
+                      <img src={src} alt="" />
+                      <button className="pd-photo-remove-btn" onClick={() => removeDfPhoto(i)} aria-label="削除"><X size={12} /></button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {dfPhotos.length < DIARY_MAX_PHOTOS && (
+                <label className="pd-photo-upload-btn">
+                  <ImageIcon size={15} />
+                  {dfPhotoBusy ? "読み込み中..." : "写真を選ぶ"}
+                  <input type="file" accept="image/*" multiple onChange={handleDfPhotoSelect} disabled={dfPhotoBusy} style={{ display: "none" }} />
+                </label>
+              )}
+              {dfPhotoError && <div className="pd-lock-error">{dfPhotoError}</div>}
+            </div>
             <div className="pd-panel-actions">
               <button className="pd-btn-secondary" onClick={() => setDiaryFormOpen(false)}>キャンセル</button>
-              <button className="pd-btn-primary" onClick={saveDiary} disabled={!dfContent.trim()}>保存する</button>
+              <button className="pd-btn-primary" onClick={saveDiary} disabled={!dfContent.trim()}>{editingDiaryId ? "更新する" : "保存する"}</button>
             </div>
           </div>
+        </div>
+      )}
+
+      {lightboxSrc && (
+        <div className="pd-lightbox" onClick={() => setLightboxSrc(null)}>
+          <img src={lightboxSrc} alt="" />
         </div>
       )}
     </div>
@@ -2780,6 +2872,12 @@ function GlobalStyle() {
       .pd-class-detail-title { display: flex; align-items: center; gap: 8px; font-family: 'Libre Franklin', sans-serif; font-weight: 600; font-size: 18px; }
       .pd-class-diary-row { display: flex; align-items: flex-start; gap: 9px; padding: 8px 10px; border-radius: 9px; }
       .pd-class-diary-row .pd-dot { margin-top: 6px; }
+      .pd-class-diary-card { background: var(--pd-surface); border-radius: 12px; padding: 10px 12px; }
+      .pd-class-diary-card-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+      .pd-class-diary-card-header .pd-class-diary-row { padding: 0; flex: 1; }
+      .pd-class-diary-content { font-size: 13.5px; line-height: 1.7; white-space: pre-wrap; margin-top: 6px; padding-left: 16px; }
+      .pd-class-diary-card .pd-photo-gallery { margin-top: 8px; padding-left: 16px; }
+      .pd-class-diary-card .pd-photo-thumb { width: 72px; height: 72px; }
       .pd-section-label-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
       .pd-session-tag { display: inline-block; margin-left: 8px; font-size: 10px; font-weight: 600; color: var(--pd-amber); background: var(--pd-amber-soft); padding: 1px 7px; border-radius: 999px; }
       .pd-session-cell { display: flex; align-items: center; gap: 2px; }
