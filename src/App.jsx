@@ -35,6 +35,7 @@ import {
   Legend,
   ResponsiveContainer,
 } from "recharts";
+import QRCode from "qrcode";
 
 const STORAGE_TASKS = "personal-dashboard:tasks";
 const STORAGE_DIARY = "personal-dashboard:diary";
@@ -185,6 +186,26 @@ function usePersistedList(key) {
       }
     })();
   }, [items, loaded, key]);
+
+  // Near-real-time cross-device sync: when a cloud connection is configured,
+  // periodically re-check the cloud copy and adopt it if it changed
+  // elsewhere (e.g. edited on another device). Skipped entirely when
+  // running in local-only mode.
+  useEffect(() => {
+    if (!loaded) return;
+    if (!window.storage.getSyncConfig || !window.storage.getSyncConfig()) return;
+    const interval = setInterval(async () => {
+      try {
+        const res = await window.storage.get(key, false);
+        if (res && res.value) {
+          setItems((prev) => (JSON.stringify(prev) === res.value ? prev : JSON.parse(res.value)));
+        }
+      } catch (e) {
+        // offline or transient error; try again next tick
+      }
+    }, 4000);
+    return () => clearInterval(interval);
+  }, [loaded, key]);
 
   return [items, setItems, error];
 }
@@ -402,6 +423,45 @@ function SyncPanel({ onClose }) {
   const [status, setStatus] = useState(existing ? "connected" : "idle"); // idle | testing | connected | error
   const [message, setMessage] = useState("");
   const [pushCount, setPushCount] = useState(null);
+  const [qrDataUrl, setQrDataUrl] = useState(null);
+  const [qrError, setQrError] = useState(false);
+  const [connectLink, setConnectLink] = useState("");
+  const [copyStatus, setCopyStatus] = useState("idle"); // idle | copied | failed
+
+  useEffect(() => {
+    if (status !== "connected") {
+      setQrDataUrl(null);
+      setConnectLink("");
+      return;
+    }
+    const cfg = window.storage.getSyncConfig();
+    if (!cfg) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const encoded = encodeURIComponent(btoa(JSON.stringify(cfg)));
+        const link = `${window.location.origin}${window.location.pathname}?sync=${encoded}`;
+        setConnectLink(link);
+        const dataUrl = await QRCode.toDataURL(link, { width: 220, margin: 1, color: { dark: "#21252C", light: "#FFFFFF" } });
+        if (!cancelled) setQrDataUrl(dataUrl);
+      } catch (e) {
+        if (!cancelled) setQrError(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [status]);
+
+  async function handleCopyLink() {
+    try {
+      await navigator.clipboard.writeText(connectLink);
+      setCopyStatus("copied");
+      setTimeout(() => setCopyStatus("idle"), 2000);
+    } catch (e) {
+      setCopyStatus("failed");
+    }
+  }
 
   async function handleConnect() {
     if (!url.trim() || !key.trim()) return;
@@ -451,6 +511,25 @@ function SyncPanel({ onClose }) {
           無料のSupabaseというサービスでデータの保存場所を作ると、同じ場所を指定した端末どうしでデータが共有されます。
           未設定の場合、データはこの端末だけに保存されます。
         </p>
+
+        {status === "connected" && (
+          <div className="pd-qr-block">
+            <div className="pd-sync-desc" style={{ marginBottom: 10 }}>
+              スマホなどカメラがある端末はQRコードを読み取るだけ、パソコンなどカメラがない端末は下のボタンでリンクをコピーして、新しい端末のブラウザに貼り付けてください。どちらもURLやキーを自分で打ち込む必要はありません。
+            </div>
+            {qrDataUrl ? (
+              <img src={qrDataUrl} alt="接続用QRコード" className="pd-qr-image" />
+            ) : qrError ? (
+              <div className="pd-empty-note">QRコードの生成に失敗しました</div>
+            ) : (
+              <div className="pd-empty-note">QRコードを生成中...</div>
+            )}
+            <button className="pd-btn-secondary pd-small" style={{ marginTop: 12 }} onClick={handleCopyLink} disabled={!connectLink}>
+              {copyStatus === "copied" ? "コピーしました" : "接続リンクをコピー(パソコン向け)"}
+            </button>
+            {copyStatus === "failed" && <div className="pd-lock-error">コピーに失敗しました。手動で選択してコピーしてください。</div>}
+          </div>
+        )}
 
         <div className="pd-field">
           <label htmlFor="sync-url">Project URL</label>
@@ -2688,6 +2767,8 @@ function GlobalStyle() {
       .pd-sync-message { font-size: 12.5px; color: var(--pd-teal); background: var(--pd-teal-soft); padding: 8px 10px; border-radius: 8px; margin-top: 4px; margin-bottom: 4px; }
       .pd-sync-message.error { color: var(--pd-coral); background: var(--pd-coral-soft); }
       .pd-sync-connected { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--pd-line); }
+      .pd-qr-block { display: flex; flex-direction: column; align-items: center; text-align: center; background: var(--pd-bg); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+      .pd-qr-image { width: 180px; height: 180px; border-radius: 8px; background: white; padding: 8px; }
     `}</style>
   );
 }
