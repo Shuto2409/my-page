@@ -1782,6 +1782,17 @@ function GanttChart({ items }) {
 /* ============================= CLASSES ============================= */
 
 const CLASS_COLORS = ["var(--pd-teal)", "var(--pd-amber)", "var(--pd-coral)", "var(--pd-purple)", "var(--pd-rose)", "var(--pd-blue)"];
+const ATTENDANCE_META = {
+  present: { label: "出", full: "出席", color: "var(--pd-teal)" },
+  absent: { label: "欠", full: "欠席", color: "var(--pd-coral)" },
+  late: { label: "遅", full: "遅刻", color: "var(--pd-amber)" },
+};
+const ATTENDANCE_ORDER = [null, "present", "absent", "late"];
+function nextAttendance(current) {
+  const idx = ATTENDANCE_ORDER.indexOf(current || null);
+  return ATTENDANCE_ORDER[(idx + 1) % ATTENDANCE_ORDER.length];
+}
+const CLASS_GRADES = ["S", "A", "B", "C", "D"];
 
 function getSortedSessions(sessions) {
   return [...(sessions || [])].sort((a, b) => {
@@ -1801,6 +1812,7 @@ function ClassesView({ classes, setClasses, diary, setDiary, assignments }) {
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [fName, setFName] = useState("");
+  const [fGrade, setFGrade] = useState("");
   const [selectedId, setSelectedId] = useState(classes[0]?.id || null);
   const [scheduleEditMode, setScheduleEditMode] = useState(false);
 
@@ -1853,7 +1865,7 @@ function ClassesView({ classes, setClasses, diary, setDiary, assignments }) {
 
   function addSessionRow(classId) {
     setClasses((prev) =>
-      prev.map((c) => (c.id === classId ? { ...c, sessions: [...(c.sessions || []), { id: uid(), date: "" }] } : c))
+      prev.map((c) => (c.id === classId ? { ...c, sessions: [...(c.sessions || []), { id: uid(), date: "", attendance: null }] } : c))
     );
   }
   function updateSessionDate(classId, sessionId, date) {
@@ -1861,6 +1873,15 @@ function ClassesView({ classes, setClasses, diary, setDiary, assignments }) {
       prev.map((c) =>
         c.id === classId
           ? { ...c, sessions: (c.sessions || []).map((s) => (s.id === sessionId ? { ...s, date } : s)) }
+          : c
+      )
+    );
+  }
+  function cycleAttendance(classId, sessionId) {
+    setClasses((prev) =>
+      prev.map((c) =>
+        c.id === classId
+          ? { ...c, sessions: (c.sessions || []).map((s) => (s.id === sessionId ? { ...s, attendance: nextAttendance(s.attendance) } : s)) }
           : c
       )
     );
@@ -1874,20 +1895,22 @@ function ClassesView({ classes, setClasses, diary, setDiary, assignments }) {
   function openNew() {
     setEditingId(null);
     setFName("");
+    setFGrade("");
     setFormOpen(true);
   }
   function openEdit(c) {
     setEditingId(c.id);
     setFName(c.name);
+    setFGrade(c.grade || "");
     setFormOpen(true);
   }
   function save() {
     if (!fName.trim()) return;
     if (editingId) {
-      setClasses((prev) => prev.map((c) => (c.id === editingId ? { ...c, name: fName.trim() } : c)));
+      setClasses((prev) => prev.map((c) => (c.id === editingId ? { ...c, name: fName.trim(), grade: fGrade || null } : c)));
     } else {
       const color = CLASS_COLORS[classes.length % CLASS_COLORS.length];
-      const newClass = { id: uid(), name: fName.trim(), color };
+      const newClass = { id: uid(), name: fName.trim(), color, grade: fGrade || null, sessions: [] };
       setClasses((prev) => [...prev, newClass]);
       setSelectedId(newClass.id);
     }
@@ -2010,6 +2033,14 @@ function ClassesView({ classes, setClasses, diary, setDiary, assignments }) {
                                   value={sessions[i].date}
                                   onChange={(e) => updateSessionDate(c.id, sessions[i].id, e.target.value)}
                                 />
+                                <button
+                                  className="pd-attendance-btn"
+                                  style={sessions[i].attendance ? { background: ATTENDANCE_META[sessions[i].attendance].color, color: "#fff" } : undefined}
+                                  onClick={() => cycleAttendance(c.id, sessions[i].id)}
+                                  title="クリックで出席/欠席/遅刻を切り替え"
+                                >
+                                  {sessions[i].attendance ? ATTENDANCE_META[sessions[i].attendance].label : "-"}
+                                </button>
                                 <button className="pd-icon-btn" onClick={() => removeSession(c.id, sessions[i].id)} aria-label="削除">
                                   <Trash2 size={12} />
                                 </button>
@@ -2019,7 +2050,20 @@ function ClassesView({ classes, setClasses, diary, setDiary, assignments }) {
                             )}
                           </td>
                         ) : (
-                          <td key={n}>{sessions[i]?.date ? formatDateLabel(sessions[i].date).replace(/\(.*\)/, "") : "-"}</td>
+                          <td key={n}>
+                            {sessions[i]?.date ? (
+                              <span className="pd-session-readcell">
+                                {formatDateLabel(sessions[i].date).replace(/\(.*\)/, "")}
+                                {sessions[i].attendance && (
+                                  <span className="pd-attendance-badge" style={{ color: ATTENDANCE_META[sessions[i].attendance].color, background: "transparent" }}>
+                                    {ATTENDANCE_META[sessions[i].attendance].label}
+                                  </span>
+                                )}
+                              </span>
+                            ) : (
+                              "-"
+                            )}
+                          </td>
                         )
                       )}
                       {scheduleEditMode && (
@@ -2053,7 +2097,10 @@ function ClassesView({ classes, setClasses, diary, setDiary, assignments }) {
                 >
                   <span className="pd-dot" style={{ background: c.color || "var(--pd-teal)" }} />
                   <div className="pd-class-item-body">
-                    <div className="pd-class-item-name">{c.name}</div>
+                    <div className="pd-class-item-name">
+                      {c.name}
+                      {c.grade && <span className="pd-grade-badge">{c.grade}</span>}
+                    </div>
                     <div className="pd-class-item-sub">日記{diaryCount}・課題{assignCount}</div>
                   </div>
                 </button>
@@ -2070,6 +2117,7 @@ function ClassesView({ classes, setClasses, diary, setDiary, assignments }) {
                   <div className="pd-class-detail-title">
                     <span className="pd-dot" style={{ background: selected.color || "var(--pd-teal)" }} />
                     {selected.name}
+                    {selected.grade && <span className="pd-grade-badge">評価 {selected.grade}</span>}
                   </div>
                   <div style={{ display: "flex", gap: 6 }}>
                     <button className="pd-quickadd-btn pd-inline" onClick={openDiaryForm}><Plus size={15} /> 日記を書く</button>
@@ -2161,6 +2209,18 @@ function ClassesView({ classes, setClasses, diary, setDiary, assignments }) {
               <label htmlFor="cl-name">授業名</label>
               <input id="cl-name" type="text" value={fName} onChange={(e) => setFName(e.target.value)} placeholder="例: 経済学概論" autoFocus
                 onKeyDown={(e) => { if (e.key === "Enter") save(); }} />
+            </div>
+            <div className="pd-field">
+              <label>評価(任意)</label>
+              <div className="pd-cat-row">
+                <button className={"pd-cat-btn" + (fGrade === "" ? " active" : "")} onClick={() => setFGrade("")}>なし</button>
+                {CLASS_GRADES.map((g) => (
+                  <button key={g} className={"pd-cat-btn" + (fGrade === g ? " active" : "")}
+                    style={fGrade === g ? { background: "var(--pd-purple)", color: "#fff" } : undefined} onClick={() => setFGrade(g)}>
+                    {g}
+                  </button>
+                ))}
+              </div>
             </div>
             <div className="pd-panel-actions">
               <button className="pd-btn-secondary" onClick={() => setFormOpen(false)}>キャンセル</button>
@@ -2866,6 +2926,7 @@ function GlobalStyle() {
       .pd-class-item:hover { background: var(--pd-bg); }
       .pd-class-item .pd-dot { margin-top: 5px; }
       .pd-class-item-name { font-size: 13.5px; font-weight: 500; }
+      .pd-grade-badge { display: inline-block; margin-left: 7px; font-size: 10px; font-weight: 700; color: var(--pd-purple); background: var(--pd-purple-soft); padding: 1px 7px; border-radius: 999px; vertical-align: middle; }
       .pd-class-item-sub { font-size: 11px; color: var(--pd-ink-muted); margin-top: 2px; }
       .pd-class-detail { padding: 4px 8px; }
       .pd-class-detail-header { display: flex; align-items: flex-start; justify-content: space-between; }
@@ -2882,6 +2943,9 @@ function GlobalStyle() {
       .pd-session-tag { display: inline-block; margin-left: 8px; font-size: 10px; font-weight: 600; color: var(--pd-amber); background: var(--pd-amber-soft); padding: 1px 7px; border-radius: 999px; }
       .pd-session-cell { display: flex; align-items: center; gap: 2px; }
       .pd-session-cell .pd-select { padding: 5px 7px; }
+      .pd-attendance-btn { width: 24px; height: 24px; border-radius: 6px; border: none; background: var(--pd-bg); color: var(--pd-ink-muted); font-size: 11px; font-weight: 600; cursor: pointer; flex-shrink: 0; }
+      .pd-session-readcell { display: inline-flex; align-items: center; gap: 5px; }
+      .pd-attendance-badge { font-size: 10.5px; font-weight: 700; }
 
       .pd-notes-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
       .pd-note-card { background: var(--pd-surface); border: none; border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 8px; min-height: 130px; }
