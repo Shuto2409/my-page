@@ -24,6 +24,7 @@ import {
   Moon,
   Cloud,
   GraduationCap,
+  Image as ImageIcon,
 } from "lucide-react";
 import {
   LineChart,
@@ -1181,6 +1182,39 @@ function TaskRow({ task, onToggle, onDelete, onEdit, showDate }) {
 
 /* ============================= DIARY ============================= */
 
+function compressImageFile(file, maxDim = 1100, quality = 0.75) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > maxDim || height > maxDim) {
+          if (width > height) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          } else {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      };
+      img.onerror = () => reject(new Error("画像を読み込めませんでした"));
+      img.src = e.target.result;
+    };
+    reader.onerror = () => reject(new Error("ファイルを読み込めませんでした"));
+    reader.readAsDataURL(file);
+  });
+}
+
+const DIARY_MAX_PHOTOS = 4;
+
 function DiaryView({ diary, setDiary, classes }) {
   const sorted = useMemo(() => [...diary].sort((a, b) => b.date.localeCompare(a.date)), [diary]);
   const [selectedId, setSelectedId] = useState(sorted[0]?.id || null);
@@ -1190,10 +1224,42 @@ function DiaryView({ diary, setDiary, classes }) {
   const [fContent, setFContent] = useState("");
   const [fMood, setFMood] = useState("neutral");
   const [fClassId, setFClassId] = useState("");
+  const [fPhotos, setFPhotos] = useState([]);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoError, setPhotoError] = useState("");
   const [editingId, setEditingId] = useState(null);
+  const [lightboxSrc, setLightboxSrc] = useState(null);
 
   const selected = diary.find((d) => d.id === selectedId) || null;
   const classById = useMemo(() => Object.fromEntries((classes || []).map((c) => [c.id, c])), [classes]);
+
+  async function handlePhotoSelect(e) {
+    const files = Array.from(e.target.files || []);
+    e.target.value = "";
+    if (files.length === 0) return;
+    setPhotoError("");
+    const room = DIARY_MAX_PHOTOS - fPhotos.length;
+    if (room <= 0) {
+      setPhotoError(`写真は1つの日記につき最大${DIARY_MAX_PHOTOS}枚までです`);
+      return;
+    }
+    setPhotoBusy(true);
+    try {
+      const toProcess = files.slice(0, room);
+      const compressed = await Promise.all(toProcess.map((f) => compressImageFile(f)));
+      setFPhotos((prev) => [...prev, ...compressed]);
+      if (files.length > room) {
+        setPhotoError(`写真は1つの日記につき最大${DIARY_MAX_PHOTOS}枚までです`);
+      }
+    } catch (err) {
+      setPhotoError("写真の読み込みに失敗しました");
+    } finally {
+      setPhotoBusy(false);
+    }
+  }
+  function removePhoto(index) {
+    setFPhotos((prev) => prev.filter((_, i) => i !== index));
+  }
 
   function openNew() {
     setEditingId(null);
@@ -1202,6 +1268,8 @@ function DiaryView({ diary, setDiary, classes }) {
     setFContent("");
     setFMood("neutral");
     setFClassId("");
+    setFPhotos([]);
+    setPhotoError("");
     setFormOpen(true);
   }
   function openEdit(entry) {
@@ -1211,15 +1279,17 @@ function DiaryView({ diary, setDiary, classes }) {
     setFContent(entry.content);
     setFMood(entry.mood || "neutral");
     setFClassId(entry.classId || "");
+    setFPhotos(entry.photos || []);
+    setPhotoError("");
     setFormOpen(true);
   }
   function save() {
     if (!fContent.trim()) return;
     if (editingId) {
-      setDiary((prev) => prev.map((d) => (d.id === editingId ? { ...d, date: fDate, title: fTitle.trim(), content: fContent.trim(), mood: fMood, classId: fClassId || null } : d)));
+      setDiary((prev) => prev.map((d) => (d.id === editingId ? { ...d, date: fDate, title: fTitle.trim(), content: fContent.trim(), mood: fMood, classId: fClassId || null, photos: fPhotos } : d)));
       setSelectedId(editingId);
     } else {
-      const newEntry = { id: uid(), date: fDate, title: fTitle.trim(), content: fContent.trim(), mood: fMood, classId: fClassId || null };
+      const newEntry = { id: uid(), date: fDate, title: fTitle.trim(), content: fContent.trim(), mood: fMood, classId: fClassId || null, photos: fPhotos };
       setDiary((prev) => [...prev, newEntry]);
       setSelectedId(newEntry.id);
     }
@@ -1248,7 +1318,12 @@ function DiaryView({ diary, setDiary, classes }) {
             >
               <span className="pd-dot" style={{ background: MOODS[entry.mood || "neutral"].color }} />
               <div className="pd-diary-item-body">
-                <div className="pd-diary-item-date">{formatDateLabel(entry.date)}</div>
+                <div className="pd-diary-item-date">
+                  {formatDateLabel(entry.date)}
+                  {entry.photos && entry.photos.length > 0 && (
+                    <span className="pd-photo-count"><ImageIcon size={11} /> {entry.photos.length}</span>
+                  )}
+                </div>
                 <div className="pd-diary-item-title">{entry.title || entry.content.slice(0, 20)}</div>
                 {entry.classId && classById[entry.classId] && (
                   <div className="pd-class-badge">{classById[entry.classId].name}</div>
@@ -1277,10 +1352,23 @@ function DiaryView({ diary, setDiary, classes }) {
                 </div>
               </div>
               <div className="pd-diary-detail-content">{selected.content}</div>
+              {selected.photos && selected.photos.length > 0 && (
+                <div className="pd-photo-gallery">
+                  {selected.photos.map((src, i) => (
+                    <img key={i} src={src} alt="" className="pd-photo-thumb" onClick={() => setLightboxSrc(src)} />
+                  ))}
+                </div>
+              )}
             </>
           )}
         </div>
       </div>
+
+      {lightboxSrc && (
+        <div className="pd-lightbox" onClick={() => setLightboxSrc(null)}>
+          <img src={lightboxSrc} alt="" />
+        </div>
+      )}
 
       {formOpen && (
         <div className="pd-overlay" onClick={() => setFormOpen(false)}>
@@ -1322,6 +1410,27 @@ function DiaryView({ diary, setDiary, classes }) {
             <div className="pd-field">
               <label htmlFor="dy-content">内容</label>
               <textarea id="dy-content" rows={7} value={fContent} onChange={(e) => setFContent(e.target.value)} placeholder="今日あったことを書いてみましょう" />
+            </div>
+            <div className="pd-field">
+              <label>写真(任意・最大{DIARY_MAX_PHOTOS}枚)</label>
+              {fPhotos.length > 0 && (
+                <div className="pd-photo-edit-grid">
+                  {fPhotos.map((src, i) => (
+                    <div key={i} className="pd-photo-edit-item">
+                      <img src={src} alt="" />
+                      <button className="pd-photo-remove-btn" onClick={() => removePhoto(i)} aria-label="削除"><X size={12} /></button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {fPhotos.length < DIARY_MAX_PHOTOS && (
+                <label className="pd-photo-upload-btn">
+                  <ImageIcon size={15} />
+                  {photoBusy ? "読み込み中..." : "写真を選ぶ"}
+                  <input type="file" accept="image/*" multiple onChange={handlePhotoSelect} disabled={photoBusy} style={{ display: "none" }} />
+                </label>
+              )}
+              {photoError && <div className="pd-lock-error">{photoError}</div>}
             </div>
             <div className="pd-panel-actions">
               <button className="pd-btn-secondary" onClick={() => setFormOpen(false)}>キャンセル</button>
@@ -2641,6 +2750,20 @@ function GlobalStyle() {
       .pd-diary-detail-date { font-size: 12.5px; color: var(--pd-ink-muted); }
       .pd-diary-detail-title { font-family: 'Libre Franklin', sans-serif; font-weight: 600; font-size: 18px; margin-top: 2px; }
       .pd-diary-detail-content { font-size: 14.5px; line-height: 1.8; white-space: pre-wrap; }
+
+      .pd-photo-count { display: inline-flex; align-items: center; gap: 3px; margin-left: 8px; font-size: 10.5px; color: var(--pd-ink-muted); }
+      .pd-photo-gallery { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+      .pd-photo-thumb { width: 96px; height: 96px; object-fit: cover; border-radius: 10px; cursor: pointer; transition: opacity 0.15s ease; }
+      .pd-photo-thumb:hover { opacity: 0.85; }
+      .pd-lightbox { position: fixed; inset: 0; background: rgba(10,11,13,0.86); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 24px; cursor: zoom-out; }
+      .pd-lightbox img { max-width: 100%; max-height: 100%; border-radius: 10px; object-fit: contain; }
+
+      .pd-photo-edit-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+      .pd-photo-edit-item { position: relative; width: 72px; height: 72px; }
+      .pd-photo-edit-item img { width: 100%; height: 100%; object-fit: cover; border-radius: 8px; }
+      .pd-photo-remove-btn { position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; border-radius: 50%; background: var(--pd-ink); color: white; border: none; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+      .pd-photo-upload-btn { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; padding: 8px 12px; border-radius: 8px; background: var(--pd-bg); color: var(--pd-ink); cursor: pointer; width: fit-content; }
+      .pd-photo-upload-btn:hover { background: var(--pd-hover); }
 
       .pd-class-badge { display: inline-flex; align-items: center; font-size: 10.5px; font-weight: 500; color: var(--pd-amber); background: var(--pd-amber-soft); padding: 2px 8px; border-radius: 999px; width: fit-content; }
       .pd-class-shell { display: grid; grid-template-columns: 240px 1fr; gap: 24px; min-height: 400px; }
