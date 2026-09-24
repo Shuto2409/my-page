@@ -26,10 +26,14 @@ import {
   GraduationCap,
   Image as ImageIcon,
   ExternalLink,
+  Wallet,
 } from "lucide-react";
 import {
   LineChart,
   Line,
+  BarChart,
+  Bar,
+  Cell,
   CartesianGrid,
   XAxis,
   YAxis,
@@ -44,6 +48,7 @@ const STORAGE_DIARY = "personal-dashboard:diary";
 const STORAGE_NOTES = "personal-dashboard:notes";
 const STORAGE_ASSIGN = "personal-dashboard:assignments";
 const STORAGE_CLASSES = "personal-dashboard:classes";
+const STORAGE_BUDGET = "personal-dashboard:budget";
 const STORAGE_WORKTIMES = "personal-dashboard:worktimes";
 const STORAGE_WORKCODE = "personal-dashboard:workcode";
 const STORAGE_THEME = "personal-dashboard:theme";
@@ -71,6 +76,7 @@ const NAV_ITEMS_BASE = [
   { key: "notes", label: "メモ", icon: NotebookPen, color: "var(--pd-purple)", soft: "var(--pd-purple-soft)" },
   { key: "assignments", label: "課題", icon: ListChecks, color: "var(--pd-coral)", soft: "var(--pd-coral-soft)" },
   { key: "classes", label: "授業", icon: GraduationCap, color: "var(--pd-amber)", soft: "var(--pd-amber-soft)" },
+  { key: "budget", label: "家計簿", icon: Wallet, color: "var(--pd-green)", soft: "var(--pd-green-soft)" },
 ];
 
 function pad(n) {
@@ -256,6 +262,7 @@ export default function PersonalDashboard() {
   const [notes, setNotes, notesErr] = usePersistedList(STORAGE_NOTES);
   const [assignments, setAssignments, assignErr] = usePersistedList(STORAGE_ASSIGN);
   const [classes, setClasses, classesErr] = usePersistedList(STORAGE_CLASSES);
+  const [budget, setBudget, budgetErr] = usePersistedList(STORAGE_BUDGET);
   const [workTimes, setWorkTimes, workTimesErr] = usePersistedList(STORAGE_WORKTIMES);
   const [workCode, setWorkCode] = usePersistedValue(STORAGE_WORKCODE);
   const [workUnlocked, setWorkUnlocked] = useState(false);
@@ -272,7 +279,7 @@ export default function PersonalDashboard() {
     document.body.style.background = isDark ? "#111318" : "#EFECE3";
   }, [isDark]);
 
-  const saveError = tasksErr || diaryErr || notesErr || assignErr || workTimesErr || classesErr;
+  const saveError = tasksErr || diaryErr || notesErr || assignErr || workTimesErr || classesErr || budgetErr;
 
   function toggleTheme() {
     setTheme(isDark ? "light" : "dark");
@@ -409,6 +416,7 @@ export default function PersonalDashboard() {
           {activeView === "classes" && (
             <ClassesView classes={classes} setClasses={setClasses} diary={diary} setDiary={setDiary} assignments={assignments} />
           )}
+          {activeView === "budget" && <BudgetView budget={budget} setBudget={setBudget} />}
           {activeView === "work" && workUnlocked && <WorkView tasks={tasks} setTasks={setTasks} workTimes={workTimes} setWorkTimes={setWorkTimes} />}
         </div>
       </div>
@@ -2717,6 +2725,276 @@ function MealTimeChart({ data, empty }) {
   );
 }
 
+/* ============================= BUDGET ============================= */
+
+const EXPENSE_CATEGORIES = ["食費", "交通費", "娯楽", "日用品", "家賃", "光熱費", "通信費", "医療", "その他"];
+const INCOME_CATEGORIES = ["給与", "お小遣い", "副収入", "その他"];
+const BUDGET_CATEGORY_COLORS = ["var(--pd-green)", "var(--pd-teal)", "var(--pd-amber)", "var(--pd-coral)", "var(--pd-purple)", "var(--pd-rose)", "var(--pd-blue)", "#8A7A5C", "#6B7280"];
+
+function formatYen(n) {
+  return `¥${Math.round(n).toLocaleString("ja-JP")}`;
+}
+
+function BudgetView({ budget, setBudget }) {
+  const [viewTab, setViewTab] = useState("list"); // "list" | "chart"
+  const now = new Date();
+  const [year, setYear] = useState(now.getFullYear());
+  const [month, setMonth] = useState(now.getMonth() + 1);
+
+  const [formOpen, setFormOpen] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [fDate, setFDate] = useState(() => toDateKey(new Date()));
+  const [fType, setFType] = useState("expense"); // "expense" | "income"
+  const [fCategory, setFCategory] = useState(EXPENSE_CATEGORIES[0]);
+  const [fAmount, setFAmount] = useState("");
+  const [fMemo, setFMemo] = useState("");
+
+  const yearOptions = useMemo(() => {
+    const y = now.getFullYear();
+    return [y - 2, y - 1, y, y + 1];
+  }, []);
+
+  const monthKey = `${year}-${pad(month)}`;
+  const monthEntries = useMemo(
+    () => budget.filter((b) => b.date.startsWith(monthKey)).sort((a, b) => b.date.localeCompare(a.date)),
+    [budget, monthKey]
+  );
+  const monthIncome = useMemo(() => monthEntries.filter((b) => b.type === "income").reduce((s, b) => s + b.amount, 0), [monthEntries]);
+  const monthExpense = useMemo(() => monthEntries.filter((b) => b.type === "expense").reduce((s, b) => s + b.amount, 0), [monthEntries]);
+  const monthBalance = monthIncome - monthExpense;
+
+  const categoryData = useMemo(() => {
+    const sums = {};
+    monthEntries
+      .filter((b) => b.type === "expense")
+      .forEach((b) => {
+        sums[b.category] = (sums[b.category] || 0) + b.amount;
+      });
+    return Object.entries(sums)
+      .map(([category, amount]) => ({ category, amount }))
+      .sort((a, b) => b.amount - a.amount);
+  }, [monthEntries]);
+
+  const trendData = useMemo(() => {
+    const now2 = new Date(year, month - 1, 1);
+    return Array.from({ length: 6 }, (_, i) => {
+      const d = new Date(now2.getFullYear(), now2.getMonth() - (5 - i), 1);
+      const key = `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
+      const entries = budget.filter((b) => b.date.startsWith(key));
+      const income = entries.filter((b) => b.type === "income").reduce((s, b) => s + b.amount, 0);
+      const expense = entries.filter((b) => b.type === "expense").reduce((s, b) => s + b.amount, 0);
+      return { label: `${d.getMonth() + 1}月`, 収入: income, 支出: expense };
+    });
+  }, [budget, year, month]);
+
+  function openNew() {
+    setEditingId(null);
+    setFDate(toDateKey(new Date()));
+    setFType("expense");
+    setFCategory(EXPENSE_CATEGORIES[0]);
+    setFAmount("");
+    setFMemo("");
+    setFormOpen(true);
+  }
+  function openEdit(entry) {
+    setEditingId(entry.id);
+    setFDate(entry.date);
+    setFType(entry.type);
+    setFCategory(entry.category);
+    setFAmount(String(entry.amount));
+    setFMemo(entry.memo || "");
+    setFormOpen(true);
+  }
+  function switchType(type) {
+    setFType(type);
+    setFCategory(type === "expense" ? EXPENSE_CATEGORIES[0] : INCOME_CATEGORIES[0]);
+  }
+  function save() {
+    const amount = Number(fAmount);
+    if (!amount || amount <= 0) return;
+    if (editingId) {
+      setBudget((prev) =>
+        prev.map((b) => (b.id === editingId ? { ...b, date: fDate, type: fType, category: fCategory, amount, memo: fMemo.trim() } : b))
+      );
+    } else {
+      setBudget((prev) => [...prev, { id: uid(), date: fDate, type: fType, category: fCategory, amount, memo: fMemo.trim() }]);
+    }
+    setFormOpen(false);
+  }
+  function remove(id) {
+    setBudget((prev) => prev.filter((b) => b.id !== id));
+  }
+
+  return (
+    <div className="pd-view">
+      <div className="pd-view-header">
+        <div className="pd-view-title">家計簿</div>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <div className="pd-tabs">
+            <button className={"pd-tab" + (viewTab === "list" ? " active" : "")} onClick={() => setViewTab("list")}>入力・一覧</button>
+            <button className={"pd-tab" + (viewTab === "chart" ? " active" : "")} onClick={() => setViewTab("chart")}>グラフ</button>
+          </div>
+          <button className="pd-quickadd-btn pd-inline" onClick={openNew}><Plus size={16} /> 記録を追加</button>
+        </div>
+      </div>
+
+      <div className="pd-agg-filters" style={{ marginBottom: 18 }}>
+        <select className="pd-select" value={year} onChange={(e) => setYear(Number(e.target.value))}>
+          {yearOptions.map((y) => <option key={y} value={y}>{y}年</option>)}
+        </select>
+        <select className="pd-select" value={month} onChange={(e) => setMonth(Number(e.target.value))}>
+          {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => <option key={m} value={m}>{m}月</option>)}
+        </select>
+      </div>
+
+      <div className="pd-stat-row">
+        <div className="pd-stat-card">
+          <div className="pd-stat-label">収入</div>
+          <div className="pd-stat-value" style={{ background: "none", WebkitTextFillColor: "unset", color: "var(--pd-teal)" }}>{formatYen(monthIncome)}</div>
+        </div>
+        <div className="pd-stat-card">
+          <div className="pd-stat-label">支出</div>
+          <div className="pd-stat-value" style={{ background: "none", WebkitTextFillColor: "unset", color: "var(--pd-coral)" }}>{formatYen(monthExpense)}</div>
+        </div>
+        <div className="pd-stat-card">
+          <div className="pd-stat-label">差引</div>
+          <div className="pd-stat-value" style={{ background: "none", WebkitTextFillColor: "unset", color: monthBalance >= 0 ? "var(--pd-teal)" : "var(--pd-coral)" }}>
+            {monthBalance >= 0 ? "+" : ""}{formatYen(monthBalance)}
+          </div>
+        </div>
+      </div>
+
+      {viewTab === "list" && (
+        <>
+          {monthEntries.length === 0 ? (
+            <div className="pd-empty-note">この月の記録はまだありません</div>
+          ) : (
+            <div className="pd-assign-list">
+              {monthEntries.map((b) => (
+                <div key={b.id} className="pd-budget-row">
+                  <div className="pd-budget-row-main">
+                    <span className={"pd-budget-type-dot" + (b.type === "income" ? " income" : "")} />
+                    <div>
+                      <div className="pd-budget-category">{b.category}{b.memo && <span className="pd-budget-memo"> ・{b.memo}</span>}</div>
+                      <div className="pd-assign-date">{formatDateLabel(b.date)}</div>
+                    </div>
+                  </div>
+                  <div className="pd-budget-row-actions">
+                    <div className={"pd-budget-amount" + (b.type === "income" ? " income" : "")}>
+                      {b.type === "income" ? "+" : "-"}{formatYen(b.amount)}
+                    </div>
+                    <button className="pd-icon-btn" onClick={() => openEdit(b)} aria-label="編集"><Pencil size={13} /></button>
+                    <button className="pd-icon-btn" onClick={() => remove(b.id)} aria-label="削除"><Trash2 size={13} /></button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {viewTab === "chart" && (
+        <>
+          <div className="pd-chart-card" style={{ marginBottom: 16 }}>
+            <div className="pd-chart-card-header">
+              <div className="pd-chart-title">カテゴリ別の支出({month}月)</div>
+            </div>
+            {categoryData.length === 0 ? (
+              <div className="pd-empty-note">この月の支出記録がありません</div>
+            ) : (
+              <div style={{ width: "100%", height: Math.max(160, categoryData.length * 38) }}>
+                <ResponsiveContainer>
+                  <BarChart data={categoryData} layout="vertical" margin={{ left: 8, right: 24, top: 8, bottom: 8 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--pd-line)" horizontal={false} />
+                    <XAxis type="number" tickFormatter={(v) => `¥${v}`} tick={{ fontSize: 11, fill: "var(--pd-ink-muted)" }} axisLine={{ stroke: "var(--pd-line)" }} tickLine={false} />
+                    <YAxis type="category" dataKey="category" tick={{ fontSize: 12.5, fill: "var(--pd-ink)" }} axisLine={{ stroke: "var(--pd-line)" }} tickLine={false} width={64} />
+                    <Tooltip formatter={(v) => formatYen(v)} contentStyle={{ fontSize: 12.5, borderRadius: 8, border: "1px solid var(--pd-line)" }} />
+                    <Bar dataKey="amount" radius={[0, 6, 6, 0]}>
+                      {categoryData.map((entry, i) => (
+                        <Cell key={entry.category} fill={BUDGET_CATEGORY_COLORS[i % BUDGET_CATEGORY_COLORS.length]} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </div>
+
+          <div className="pd-chart-card">
+            <div className="pd-chart-card-header">
+              <div className="pd-chart-title">収入・支出の推移(直近6ヶ月)</div>
+            </div>
+            <div style={{ width: "100%", height: 260 }}>
+              <ResponsiveContainer>
+                <LineChart data={trendData} margin={{ left: 0, right: 16, top: 8, bottom: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--pd-line)" vertical={false} />
+                  <XAxis dataKey="label" tick={{ fontSize: 11, fill: "var(--pd-ink-muted)" }} axisLine={{ stroke: "var(--pd-line)" }} tickLine={false} />
+                  <YAxis tickFormatter={(v) => `¥${v}`} tick={{ fontSize: 11, fill: "var(--pd-ink-muted)" }} axisLine={{ stroke: "var(--pd-line)" }} tickLine={false} width={48} />
+                  <Tooltip formatter={(v) => formatYen(v)} contentStyle={{ fontSize: 12.5, borderRadius: 8, border: "1px solid var(--pd-line)" }} />
+                  <Legend wrapperStyle={{ fontSize: 12.5 }} />
+                  <Line type="monotone" dataKey="収入" stroke="var(--pd-teal)" strokeWidth={2.2} dot={{ r: 3 }} />
+                  <Line type="monotone" dataKey="支出" stroke="var(--pd-coral)" strokeWidth={2.2} dot={{ r: 3 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </>
+      )}
+
+      {formOpen && (
+        <div className="pd-overlay" onClick={() => setFormOpen(false)}>
+          <div className="pd-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="pd-panel-header">
+              <div className="pd-panel-title">{editingId ? "記録を編集" : "記録を追加"}</div>
+              <button className="pd-icon-btn" onClick={() => setFormOpen(false)} aria-label="閉じる"><X size={16} /></button>
+            </div>
+            <div className="pd-field">
+              <label>種類</label>
+              <div className="pd-cat-row">
+                <button className={"pd-cat-btn" + (fType === "expense" ? " active" : "")}
+                  style={fType === "expense" ? { background: "var(--pd-coral)", color: "#fff" } : undefined} onClick={() => switchType("expense")}>支出</button>
+                <button className={"pd-cat-btn" + (fType === "income" ? " active" : "")}
+                  style={fType === "income" ? { background: "var(--pd-teal)", color: "#fff" } : undefined} onClick={() => switchType("income")}>収入</button>
+              </div>
+            </div>
+            <div className="pd-row2">
+              <div className="pd-field">
+                <label htmlFor="bg-date">日付</label>
+                <input id="bg-date" type="date" value={fDate} onChange={(e) => setFDate(e.target.value)} />
+              </div>
+              <div className="pd-field">
+                <label htmlFor="bg-amount">金額</label>
+                <input id="bg-amount" type="number" min="0" value={fAmount} onChange={(e) => setFAmount(e.target.value)} placeholder="例: 1200"
+                  onKeyDown={(e) => { if (e.key === "Enter") save(); }} />
+              </div>
+            </div>
+            <div className="pd-field">
+              <label>カテゴリ</label>
+              <div className="pd-cat-row" style={{ flexWrap: "wrap" }}>
+                {(fType === "expense" ? EXPENSE_CATEGORIES : INCOME_CATEGORIES).map((c) => (
+                  <button key={c} className={"pd-cat-btn" + (fCategory === c ? " active" : "")}
+                    style={fCategory === c ? { background: fType === "expense" ? "var(--pd-coral)" : "var(--pd-teal)", color: "#fff" } : undefined}
+                    onClick={() => setFCategory(c)}>
+                    {c}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="pd-field">
+              <label htmlFor="bg-memo">メモ(任意)</label>
+              <input id="bg-memo" type="text" value={fMemo} onChange={(e) => setFMemo(e.target.value)} placeholder="例: 友達とランチ" />
+            </div>
+            <div className="pd-panel-actions">
+              <button className="pd-btn-secondary" onClick={() => setFormOpen(false)}>キャンセル</button>
+              <button className="pd-btn-primary" onClick={save} disabled={!fAmount || Number(fAmount) <= 0}>{editingId ? "更新する" : "追加する"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ============================= STYLE ============================= */
 
 function GlobalStyle() {
@@ -2742,6 +3020,8 @@ function GlobalStyle() {
         --pd-rose-soft: #F6E5EC;
         --pd-blue: #3E76B0;
         --pd-blue-soft: #E3EDF6;
+        --pd-green: #4C8C5D;
+        --pd-green-soft: #E4F0E6;
         --pd-hover: #EFEBE0;
         --pd-primary-bg: #21252C;
         --pd-primary-text: #FFFFFF;
@@ -2778,6 +3058,8 @@ function GlobalStyle() {
         --pd-rose-soft: #3A2430;
         --pd-blue: #6FA6DB;
         --pd-blue-soft: #1E2D3E;
+        --pd-green: #6FBA80;
+        --pd-green-soft: #1F3324;
         --pd-hover: #2A2D34;
         --pd-primary-bg: #ECEDEF;
         --pd-primary-text: #16181D;
@@ -3043,6 +3325,16 @@ function GlobalStyle() {
       .pd-assign-date { color: var(--pd-ink-muted); font-weight: 400; }
       .pd-assign-bar-track { height: 5px; background: var(--pd-bg); border-radius: 4px; margin-top: 8px; overflow: hidden; }
       .pd-assign-bar-fill { height: 100%; border-radius: 4px; }
+
+      .pd-budget-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--pd-surface); border-radius: 12px; padding: 12px 14px; }
+      .pd-budget-row-main { display: flex; align-items: center; gap: 10px; }
+      .pd-budget-type-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--pd-coral); flex-shrink: 0; }
+      .pd-budget-type-dot.income { background: var(--pd-teal); }
+      .pd-budget-category { font-size: 13.5px; font-weight: 500; }
+      .pd-budget-memo { font-weight: 400; color: var(--pd-ink-muted); }
+      .pd-budget-row-actions { display: flex; align-items: center; gap: 8px; }
+      .pd-budget-amount { font-size: 14.5px; font-weight: 600; color: var(--pd-coral); font-family: 'Libre Franklin', sans-serif; }
+      .pd-budget-amount.income { color: var(--pd-teal); }
 
       /* gantt */
       .pd-gantt-outer { display: flex; border: 1px solid var(--pd-line); border-radius: 12px; overflow: hidden; background: var(--pd-surface); }
