@@ -40,6 +40,7 @@ import {
   MoreHorizontal,
   ArrowUpCircle,
   ArrowDownCircle,
+  Users,
 } from "lucide-react";
 import {
   LineChart,
@@ -62,6 +63,7 @@ const STORAGE_NOTES = "personal-dashboard:notes";
 const STORAGE_ASSIGN = "personal-dashboard:assignments";
 const STORAGE_CLASSES = "personal-dashboard:classes";
 const STORAGE_BUDGET = "personal-dashboard:budget";
+const STORAGE_GAKUBUN = "personal-dashboard:gakubun";
 const STORAGE_WORKTIMES = "personal-dashboard:worktimes";
 const STORAGE_WORKCODE = "personal-dashboard:workcode";
 const STORAGE_THEME = "personal-dashboard:theme";
@@ -90,6 +92,7 @@ const NAV_ITEMS_BASE = [
   { key: "assignments", label: "課題", icon: ListChecks, color: "var(--pd-coral)", soft: "var(--pd-coral-soft)" },
   { key: "classes", label: "授業", icon: GraduationCap, color: "var(--pd-amber)", soft: "var(--pd-amber-soft)" },
   { key: "budget", label: "家計簿", icon: Wallet, color: "var(--pd-green)", soft: "var(--pd-green-soft)" },
+  { key: "gakubun", label: "学文", icon: Users, color: "var(--pd-indigo)", soft: "var(--pd-indigo-soft)" },
 ];
 
 function pad(n) {
@@ -276,6 +279,8 @@ export default function PersonalDashboard() {
   const [assignments, setAssignments, assignErr] = usePersistedList(STORAGE_ASSIGN);
   const [classes, setClasses, classesErr] = usePersistedList(STORAGE_CLASSES);
   const [budget, setBudget, budgetErr] = usePersistedList(STORAGE_BUDGET);
+  const [gakubunRaw, setGakubun] = usePersistedValue(STORAGE_GAKUBUN);
+  const gakubun = gakubunRaw || { overview: "", links: [], sessions: [] };
   const [workTimes, setWorkTimes, workTimesErr] = usePersistedList(STORAGE_WORKTIMES);
   const [workCode, setWorkCode] = usePersistedValue(STORAGE_WORKCODE);
   const [workUnlocked, setWorkUnlocked] = useState(false);
@@ -430,6 +435,7 @@ export default function PersonalDashboard() {
             <ClassesView classes={classes} setClasses={setClasses} diary={diary} setDiary={setDiary} assignments={assignments} />
           )}
           {activeView === "budget" && <BudgetView budget={budget} setBudget={setBudget} />}
+          {activeView === "gakubun" && <GakubunView data={gakubun} setData={setGakubun} />}
           {activeView === "work" && workUnlocked && <WorkView tasks={tasks} setTasks={setTasks} workTimes={workTimes} setWorkTimes={setWorkTimes} />}
         </div>
       </div>
@@ -3178,6 +3184,155 @@ function BudgetView({ budget, setBudget }) {
   );
 }
 
+/* ============================= GAKUBUN ============================= */
+
+function GakubunView({ data, setData }) {
+  const [formOpen, setFormOpen] = useState(false);
+  const [fOverview, setFOverview] = useState(data.overview || "");
+  const [fLinks, setFLinks] = useState(data.links || []);
+  const [newLinkLabel, setNewLinkLabel] = useState("");
+  const [newLinkUrl, setNewLinkUrl] = useState("");
+
+  const sortedSessions = useMemo(() => getSortedSessions(data.sessions), [data.sessions]);
+
+  function openEditForm() {
+    setFOverview(data.overview || "");
+    setFLinks(data.links || []);
+    setNewLinkLabel("");
+    setNewLinkUrl("");
+    setFormOpen(true);
+  }
+  function addLink() {
+    if (!newLinkUrl.trim()) return;
+    let url = newLinkUrl.trim();
+    if (!/^https?:\/\//i.test(url)) url = "https://" + url;
+    setFLinks((prev) => [...prev, { id: uid(), label: newLinkLabel.trim() || "リンク", url }]);
+    setNewLinkLabel("");
+    setNewLinkUrl("");
+  }
+  function removeLink(id) {
+    setFLinks((prev) => prev.filter((l) => l.id !== id));
+  }
+  function saveOverview() {
+    setData({ ...data, overview: fOverview.trim(), links: fLinks });
+    setFormOpen(false);
+  }
+
+  function addSessionRow() {
+    setData({ ...data, sessions: [...(data.sessions || []), { id: uid(), date: "" }] });
+  }
+  function updateSessionDate(sessionId, date) {
+    setData({ ...data, sessions: (data.sessions || []).map((s) => (s.id === sessionId ? { ...s, date } : s)) });
+  }
+  function removeSession(sessionId) {
+    setData({ ...data, sessions: (data.sessions || []).filter((s) => s.id !== sessionId) });
+  }
+
+  return (
+    <div className="pd-view">
+      <div className="pd-view-header">
+        <div className="pd-view-title">学文</div>
+        <button className="pd-icon-btn" onClick={openEditForm} aria-label="概要・リンクを編集" title="概要・リンクを編集">
+          <Pencil size={16} />
+        </button>
+      </div>
+
+      {(data.overview || (data.links && data.links.length > 0)) && (
+        <div className="pd-class-overview" style={{ marginTop: 0, marginBottom: 20 }}>
+          {data.overview && <div className="pd-class-overview-text">{data.overview}</div>}
+          {data.links && data.links.length > 0 && (
+            <div className="pd-class-link-row">
+              {data.links.map((l) => (
+                <a key={l.id} href={l.url} target="_blank" rel="noopener noreferrer" className="pd-class-link-chip" style={{ color: "var(--pd-indigo)", background: "var(--pd-indigo-soft)" }}>
+                  <ExternalLink size={12} /> {l.label}
+                </a>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="pd-section-label-row" style={{ marginBottom: 10 }}>
+        <span className="pd-section-label">日程表({sortedSessions.length}回)</span>
+        <button className="pd-btn-secondary pd-small" onClick={addSessionRow}>+ 日程を追加</button>
+      </div>
+      {sortedSessions.length === 0 ? (
+        <div className="pd-empty-note">まだ日程がありません。「+ 日程を追加」から登録できます。</div>
+      ) : (
+        <div className="pd-worktime-table-wrap">
+          <table className="pd-worktime-table">
+            <thead>
+              <tr>
+                <th>回</th>
+                <th>日付</th>
+                <th>曜日</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {sortedSessions.map((s, i) => (
+                <tr key={s.id}>
+                  <td>第{i + 1}回</td>
+                  <td>
+                    <input type="date" className="pd-select" value={s.date} onChange={(e) => updateSessionDate(s.id, e.target.value)} />
+                  </td>
+                  <td>{s.date ? WEEKDAYS[(parseDateKey(s.date).getDay() + 6) % 7] + "曜" : "-"}</td>
+                  <td>
+                    <button className="pd-icon-btn" onClick={() => removeSession(s.id)} aria-label="削除"><Trash2 size={14} /></button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {formOpen && (
+        <div className="pd-overlay" onClick={() => setFormOpen(false)}>
+          <div className="pd-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="pd-panel-header">
+              <div className="pd-panel-title">学文の概要・リンクを編集</div>
+              <button className="pd-icon-btn" onClick={() => setFormOpen(false)} aria-label="閉じる"><X size={16} /></button>
+            </div>
+            <div className="pd-field">
+              <label htmlFor="gk-overview">概要・メモ(任意)</label>
+              <textarea id="gk-overview" rows={4} value={fOverview} onChange={(e) => setFOverview(e.target.value)} placeholder="学術文化執行委員会の活動概要など" />
+            </div>
+            <div className="pd-field">
+              <label>リンク(任意)</label>
+              {fLinks.length > 0 && (
+                <div className="pd-link-edit-list">
+                  {fLinks.map((l) => (
+                    <div key={l.id} className="pd-link-edit-row">
+                      <ExternalLink size={13} />
+                      <span className="pd-link-edit-label">{l.label}</span>
+                      <button className="pd-icon-btn" onClick={() => removeLink(l.id)} aria-label="削除"><Trash2 size={13} /></button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="pd-row2">
+                <div className="pd-field" style={{ marginBottom: 0 }}>
+                  <input type="text" value={newLinkLabel} onChange={(e) => setNewLinkLabel(e.target.value)} placeholder="例: 活動リンク" />
+                </div>
+                <div className="pd-field" style={{ marginBottom: 0 }}>
+                  <input type="text" value={newLinkUrl} onChange={(e) => setNewLinkUrl(e.target.value)} placeholder="URL"
+                    onKeyDown={(e) => { if (e.key === "Enter") addLink(); }} />
+                </div>
+              </div>
+              <button className="pd-btn-secondary pd-small" style={{ marginTop: 8 }} onClick={addLink} disabled={!newLinkUrl.trim()}>+ リンクを追加</button>
+            </div>
+            <div className="pd-panel-actions">
+              <button className="pd-btn-secondary" onClick={() => setFormOpen(false)}>キャンセル</button>
+              <button className="pd-btn-primary" onClick={saveOverview}>保存する</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ============================= STYLE ============================= */
 
 function GlobalStyle() {
@@ -3205,6 +3360,8 @@ function GlobalStyle() {
         --pd-blue-soft: #E3EDF6;
         --pd-green: #4C8C5D;
         --pd-green-soft: #E4F0E6;
+        --pd-indigo: #5B63D3;
+        --pd-indigo-soft: #E7E8F9;
         --pd-hover: #EFEBE0;
         --pd-primary-bg: #21252C;
         --pd-primary-text: #FFFFFF;
@@ -3243,6 +3400,8 @@ function GlobalStyle() {
         --pd-blue-soft: #1E2D3E;
         --pd-green: #6FBA80;
         --pd-green-soft: #1F3324;
+        --pd-indigo: #8C93E8;
+        --pd-indigo-soft: #292B4A;
         --pd-hover: #2A2D34;
         --pd-primary-bg: #ECEDEF;
         --pd-primary-text: #16181D;
