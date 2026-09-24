@@ -27,6 +27,19 @@ import {
   Image as ImageIcon,
   ExternalLink,
   Wallet,
+  Utensils,
+  Bus,
+  Gamepad2,
+  ShoppingBag,
+  Zap,
+  Smartphone,
+  Stethoscope,
+  Package,
+  Briefcase,
+  Gift,
+  MoreHorizontal,
+  ArrowUpCircle,
+  ArrowDownCircle,
 } from "lucide-react";
 import {
   LineChart,
@@ -2731,12 +2744,33 @@ const EXPENSE_CATEGORIES = ["食費", "交通費", "娯楽", "日用品", "家�
 const INCOME_CATEGORIES = ["給与", "お小遣い", "副収入", "その他"];
 const BUDGET_CATEGORY_COLORS = ["var(--pd-green)", "var(--pd-teal)", "var(--pd-amber)", "var(--pd-coral)", "var(--pd-purple)", "var(--pd-rose)", "var(--pd-blue)", "#8A7A5C", "#6B7280"];
 
+const EXPENSE_CATEGORY_ICONS = {
+  食費: Utensils,
+  交通費: Bus,
+  娯楽: Gamepad2,
+  日用品: ShoppingBag,
+  家賃: Home,
+  光熱費: Zap,
+  通信費: Smartphone,
+  医療: Stethoscope,
+  その他: Package,
+};
+const INCOME_CATEGORY_ICONS = {
+  給与: Briefcase,
+  お小遣い: Gift,
+  副収入: TrendingUp,
+  その他: Package,
+};
+function categoryIcon(type, category) {
+  return (type === "income" ? INCOME_CATEGORY_ICONS[category] : EXPENSE_CATEGORY_ICONS[category]) || Package;
+}
+
 function formatYen(n) {
   return `¥${Math.round(n).toLocaleString("ja-JP")}`;
 }
 
 function BudgetView({ budget, setBudget }) {
-  const [viewTab, setViewTab] = useState("list"); // "list" | "chart"
+  const [viewTab, setViewTab] = useState("list"); // "list" | "chart" | "year"
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
@@ -2787,6 +2821,35 @@ function BudgetView({ budget, setBudget }) {
     });
   }, [budget, year, month]);
 
+  // --- Yearly aggregation ---
+  const yearEntries = useMemo(() => budget.filter((b) => b.date.startsWith(String(year))), [budget, year]);
+  const yearIncome = useMemo(() => yearEntries.filter((b) => b.type === "income").reduce((s, b) => s + b.amount, 0), [yearEntries]);
+  const yearExpense = useMemo(() => yearEntries.filter((b) => b.type === "expense").reduce((s, b) => s + b.amount, 0), [yearEntries]);
+  const yearBalance = yearIncome - yearExpense;
+
+  const yearMonthlyData = useMemo(() => {
+    return Array.from({ length: 12 }, (_, i) => {
+      const m = i + 1;
+      const key = `${year}-${pad(m)}`;
+      const entries = budget.filter((b) => b.date.startsWith(key));
+      const income = entries.filter((b) => b.type === "income").reduce((s, b) => s + b.amount, 0);
+      const expense = entries.filter((b) => b.type === "expense").reduce((s, b) => s + b.amount, 0);
+      return { label: `${m}月`, 収入: income, 支出: expense };
+    });
+  }, [budget, year]);
+
+  const yearCategoryData = useMemo(() => {
+    const sums = {};
+    yearEntries
+      .filter((b) => b.type === "expense")
+      .forEach((b) => {
+        sums[b.category] = (sums[b.category] || 0) + b.amount;
+      });
+    return Object.entries(sums)
+      .map(([category, amount]) => ({ category, amount }))
+      .sort((a, b) => b.amount - a.amount);
+  }, [yearEntries]);
+
   function openNew() {
     setEditingId(null);
     setFDate(toDateKey(new Date()));
@@ -2832,37 +2895,51 @@ function BudgetView({ budget, setBudget }) {
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
           <div className="pd-tabs">
             <button className={"pd-tab" + (viewTab === "list" ? " active" : "")} onClick={() => setViewTab("list")}>入力・一覧</button>
-            <button className={"pd-tab" + (viewTab === "chart" ? " active" : "")} onClick={() => setViewTab("chart")}>グラフ</button>
+            <button className={"pd-tab" + (viewTab === "chart" ? " active" : "")} onClick={() => setViewTab("chart")}>月間グラフ</button>
+            <button className={"pd-tab" + (viewTab === "year" ? " active" : "")} onClick={() => setViewTab("year")}>年間</button>
           </div>
           <button className="pd-quickadd-btn pd-inline" onClick={openNew}><Plus size={16} /> 記録を追加</button>
         </div>
       </div>
 
-      <div className="pd-agg-filters" style={{ marginBottom: 18 }}>
-        <select className="pd-select" value={year} onChange={(e) => setYear(Number(e.target.value))}>
-          {yearOptions.map((y) => <option key={y} value={y}>{y}年</option>)}
-        </select>
-        <select className="pd-select" value={month} onChange={(e) => setMonth(Number(e.target.value))}>
-          {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => <option key={m} value={m}>{m}月</option>)}
-        </select>
-      </div>
+      {viewTab !== "year" && (
+        <div className="pd-agg-filters" style={{ marginBottom: 18 }}>
+          <select className="pd-select" value={year} onChange={(e) => setYear(Number(e.target.value))}>
+            {yearOptions.map((y) => <option key={y} value={y}>{y}年</option>)}
+          </select>
+          <select className="pd-select" value={month} onChange={(e) => setMonth(Number(e.target.value))}>
+            {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => <option key={m} value={m}>{m}月</option>)}
+          </select>
+        </div>
+      )}
 
-      <div className="pd-stat-row">
-        <div className="pd-stat-card">
-          <div className="pd-stat-label">収入</div>
-          <div className="pd-stat-value" style={{ background: "none", WebkitTextFillColor: "unset", color: "var(--pd-teal)" }}>{formatYen(monthIncome)}</div>
-        </div>
-        <div className="pd-stat-card">
-          <div className="pd-stat-label">支出</div>
-          <div className="pd-stat-value" style={{ background: "none", WebkitTextFillColor: "unset", color: "var(--pd-coral)" }}>{formatYen(monthExpense)}</div>
-        </div>
-        <div className="pd-stat-card">
-          <div className="pd-stat-label">差引</div>
-          <div className="pd-stat-value" style={{ background: "none", WebkitTextFillColor: "unset", color: monthBalance >= 0 ? "var(--pd-teal)" : "var(--pd-coral)" }}>
-            {monthBalance >= 0 ? "+" : ""}{formatYen(monthBalance)}
+      {viewTab !== "year" && (
+        <div className="pd-budget-summary-row">
+          <div className="pd-budget-summary-card">
+            <div className="pd-budget-summary-icon income"><ArrowUpCircle size={18} /></div>
+            <div>
+              <div className="pd-budget-summary-label">収入</div>
+              <div className="pd-budget-summary-value income">{formatYen(monthIncome)}</div>
+            </div>
+          </div>
+          <div className="pd-budget-summary-card">
+            <div className="pd-budget-summary-icon expense"><ArrowDownCircle size={18} /></div>
+            <div>
+              <div className="pd-budget-summary-label">支出</div>
+              <div className="pd-budget-summary-value expense">{formatYen(monthExpense)}</div>
+            </div>
+          </div>
+          <div className="pd-budget-summary-card">
+            <div className="pd-budget-summary-icon" style={{ background: "var(--pd-gradient)" }}><Wallet size={18} color="#fff" /></div>
+            <div>
+              <div className="pd-budget-summary-label">差引</div>
+              <div className={"pd-budget-summary-value" + (monthBalance >= 0 ? " income" : " expense")}>
+                {monthBalance >= 0 ? "+" : ""}{formatYen(monthBalance)}
+              </div>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {viewTab === "list" && (
         <>
@@ -2870,24 +2947,29 @@ function BudgetView({ budget, setBudget }) {
             <div className="pd-empty-note">この月の記録はまだありません</div>
           ) : (
             <div className="pd-assign-list">
-              {monthEntries.map((b) => (
-                <div key={b.id} className="pd-budget-row">
-                  <div className="pd-budget-row-main">
-                    <span className={"pd-budget-type-dot" + (b.type === "income" ? " income" : "")} />
-                    <div>
-                      <div className="pd-budget-category">{b.category}{b.memo && <span className="pd-budget-memo"> ・{b.memo}</span>}</div>
-                      <div className="pd-assign-date">{formatDateLabel(b.date)}</div>
+              {monthEntries.map((b) => {
+                const Icon = categoryIcon(b.type, b.category);
+                return (
+                  <div key={b.id} className="pd-budget-row">
+                    <div className="pd-budget-row-main">
+                      <div className={"pd-budget-icon-badge" + (b.type === "income" ? " income" : "")}>
+                        <Icon size={16} />
+                      </div>
+                      <div>
+                        <div className="pd-budget-category">{b.category}{b.memo && <span className="pd-budget-memo"> ・{b.memo}</span>}</div>
+                        <div className="pd-assign-date">{formatDateLabel(b.date)}</div>
+                      </div>
+                    </div>
+                    <div className="pd-budget-row-actions">
+                      <div className={"pd-budget-amount" + (b.type === "income" ? " income" : "")}>
+                        {b.type === "income" ? "+" : "-"}{formatYen(b.amount)}
+                      </div>
+                      <button className="pd-icon-btn" onClick={() => openEdit(b)} aria-label="編集"><Pencil size={13} /></button>
+                      <button className="pd-icon-btn" onClick={() => remove(b.id)} aria-label="削除"><Trash2 size={13} /></button>
                     </div>
                   </div>
-                  <div className="pd-budget-row-actions">
-                    <div className={"pd-budget-amount" + (b.type === "income" ? " income" : "")}>
-                      {b.type === "income" ? "+" : "-"}{formatYen(b.amount)}
-                    </div>
-                    <button className="pd-icon-btn" onClick={() => openEdit(b)} aria-label="編集"><Pencil size={13} /></button>
-                    <button className="pd-icon-btn" onClick={() => remove(b.id)} aria-label="削除"><Trash2 size={13} /></button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </>
@@ -2941,6 +3023,86 @@ function BudgetView({ budget, setBudget }) {
         </>
       )}
 
+      {viewTab === "year" && (
+        <>
+          <div className="pd-agg-filters" style={{ marginBottom: 18 }}>
+            <select className="pd-select" value={year} onChange={(e) => setYear(Number(e.target.value))}>
+              {yearOptions.map((y) => <option key={y} value={y}>{y}年</option>)}
+            </select>
+          </div>
+
+          <div className="pd-budget-summary-row">
+            <div className="pd-budget-summary-card">
+              <div className="pd-budget-summary-icon income"><ArrowUpCircle size={18} /></div>
+              <div>
+                <div className="pd-budget-summary-label">{year}年 収入合計</div>
+                <div className="pd-budget-summary-value income">{formatYen(yearIncome)}</div>
+              </div>
+            </div>
+            <div className="pd-budget-summary-card">
+              <div className="pd-budget-summary-icon expense"><ArrowDownCircle size={18} /></div>
+              <div>
+                <div className="pd-budget-summary-label">{year}年 支出合計</div>
+                <div className="pd-budget-summary-value expense">{formatYen(yearExpense)}</div>
+              </div>
+            </div>
+            <div className="pd-budget-summary-card">
+              <div className="pd-budget-summary-icon" style={{ background: "var(--pd-gradient)" }}><Wallet size={18} color="#fff" /></div>
+              <div>
+                <div className="pd-budget-summary-label">{year}年 差引</div>
+                <div className={"pd-budget-summary-value" + (yearBalance >= 0 ? " income" : " expense")}>
+                  {yearBalance >= 0 ? "+" : ""}{formatYen(yearBalance)}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="pd-chart-card" style={{ marginBottom: 16 }}>
+            <div className="pd-chart-card-header">
+              <div className="pd-chart-title">月別の収支({year}年)</div>
+            </div>
+            <div style={{ width: "100%", height: 280 }}>
+              <ResponsiveContainer>
+                <BarChart data={yearMonthlyData} margin={{ left: 0, right: 16, top: 8, bottom: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--pd-line)" vertical={false} />
+                  <XAxis dataKey="label" tick={{ fontSize: 11, fill: "var(--pd-ink-muted)" }} axisLine={{ stroke: "var(--pd-line)" }} tickLine={false} />
+                  <YAxis tickFormatter={(v) => `¥${v}`} tick={{ fontSize: 11, fill: "var(--pd-ink-muted)" }} axisLine={{ stroke: "var(--pd-line)" }} tickLine={false} width={48} />
+                  <Tooltip formatter={(v) => formatYen(v)} contentStyle={{ fontSize: 12.5, borderRadius: 8, border: "1px solid var(--pd-line)" }} />
+                  <Legend wrapperStyle={{ fontSize: 12.5 }} />
+                  <Bar dataKey="収入" fill="var(--pd-teal)" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="支出" fill="var(--pd-coral)" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          <div className="pd-chart-card">
+            <div className="pd-chart-card-header">
+              <div className="pd-chart-title">カテゴリ別の支出({year}年 合計)</div>
+            </div>
+            {yearCategoryData.length === 0 ? (
+              <div className="pd-empty-note">この年の支出記録がありません</div>
+            ) : (
+              <div style={{ width: "100%", height: Math.max(160, yearCategoryData.length * 38) }}>
+                <ResponsiveContainer>
+                  <BarChart data={yearCategoryData} layout="vertical" margin={{ left: 8, right: 24, top: 8, bottom: 8 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--pd-line)" horizontal={false} />
+                    <XAxis type="number" tickFormatter={(v) => `¥${v}`} tick={{ fontSize: 11, fill: "var(--pd-ink-muted)" }} axisLine={{ stroke: "var(--pd-line)" }} tickLine={false} />
+                    <YAxis type="category" dataKey="category" tick={{ fontSize: 12.5, fill: "var(--pd-ink)" }} axisLine={{ stroke: "var(--pd-line)" }} tickLine={false} width={64} />
+                    <Tooltip formatter={(v) => formatYen(v)} contentStyle={{ fontSize: 12.5, borderRadius: 8, border: "1px solid var(--pd-line)" }} />
+                    <Bar dataKey="amount" radius={[0, 6, 6, 0]}>
+                      {yearCategoryData.map((entry, i) => (
+                        <Cell key={entry.category} fill={BUDGET_CATEGORY_COLORS[i % BUDGET_CATEGORY_COLORS.length]} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
       {formOpen && (
         <div className="pd-overlay" onClick={() => setFormOpen(false)}>
           <div className="pd-panel" onClick={(e) => e.stopPropagation()}>
@@ -2948,42 +3110,63 @@ function BudgetView({ budget, setBudget }) {
               <div className="pd-panel-title">{editingId ? "記録を編集" : "記録を追加"}</div>
               <button className="pd-icon-btn" onClick={() => setFormOpen(false)} aria-label="閉じる"><X size={16} /></button>
             </div>
+
+            <div className="pd-budget-type-toggle">
+              <button
+                className={"pd-budget-type-btn expense" + (fType === "expense" ? " active" : "")}
+                onClick={() => switchType("expense")}
+              >
+                <ArrowDownCircle size={16} /> 支出
+              </button>
+              <button
+                className={"pd-budget-type-btn income" + (fType === "income" ? " active" : "")}
+                onClick={() => switchType("income")}
+              >
+                <ArrowUpCircle size={16} /> 収入
+              </button>
+            </div>
+
             <div className="pd-field">
-              <label>種類</label>
-              <div className="pd-cat-row">
-                <button className={"pd-cat-btn" + (fType === "expense" ? " active" : "")}
-                  style={fType === "expense" ? { background: "var(--pd-coral)", color: "#fff" } : undefined} onClick={() => switchType("expense")}>支出</button>
-                <button className={"pd-cat-btn" + (fType === "income" ? " active" : "")}
-                  style={fType === "income" ? { background: "var(--pd-teal)", color: "#fff" } : undefined} onClick={() => switchType("income")}>収入</button>
+              <label htmlFor="bg-amount">金額</label>
+              <div className="pd-budget-amount-input">
+                <span>¥</span>
+                <input id="bg-amount" type="number" min="0" value={fAmount} onChange={(e) => setFAmount(e.target.value)} placeholder="0"
+                  onKeyDown={(e) => { if (e.key === "Enter") save(); }} autoFocus />
               </div>
             </div>
+
+            <div className="pd-field">
+              <label>カテゴリ</label>
+              <div className="pd-budget-category-grid">
+                {(fType === "expense" ? EXPENSE_CATEGORIES : INCOME_CATEGORIES).map((c) => {
+                  const Icon = categoryIcon(fType, c);
+                  const active = fCategory === c;
+                  return (
+                    <button
+                      key={c}
+                      className={"pd-budget-category-btn" + (active ? " active" : "")}
+                      style={active ? { background: fType === "expense" ? "var(--pd-coral)" : "var(--pd-teal)", color: "#fff" } : undefined}
+                      onClick={() => setFCategory(c)}
+                    >
+                      <Icon size={17} />
+                      <span>{c}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
             <div className="pd-row2">
               <div className="pd-field">
                 <label htmlFor="bg-date">日付</label>
                 <input id="bg-date" type="date" value={fDate} onChange={(e) => setFDate(e.target.value)} />
               </div>
               <div className="pd-field">
-                <label htmlFor="bg-amount">金額</label>
-                <input id="bg-amount" type="number" min="0" value={fAmount} onChange={(e) => setFAmount(e.target.value)} placeholder="例: 1200"
-                  onKeyDown={(e) => { if (e.key === "Enter") save(); }} />
+                <label htmlFor="bg-memo">メモ(任意)</label>
+                <input id="bg-memo" type="text" value={fMemo} onChange={(e) => setFMemo(e.target.value)} placeholder="例: 友達とランチ" />
               </div>
             </div>
-            <div className="pd-field">
-              <label>カテゴリ</label>
-              <div className="pd-cat-row" style={{ flexWrap: "wrap" }}>
-                {(fType === "expense" ? EXPENSE_CATEGORIES : INCOME_CATEGORIES).map((c) => (
-                  <button key={c} className={"pd-cat-btn" + (fCategory === c ? " active" : "")}
-                    style={fCategory === c ? { background: fType === "expense" ? "var(--pd-coral)" : "var(--pd-teal)", color: "#fff" } : undefined}
-                    onClick={() => setFCategory(c)}>
-                    {c}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="pd-field">
-              <label htmlFor="bg-memo">メモ(任意)</label>
-              <input id="bg-memo" type="text" value={fMemo} onChange={(e) => setFMemo(e.target.value)} placeholder="例: 友達とランチ" />
-            </div>
+
             <div className="pd-panel-actions">
               <button className="pd-btn-secondary" onClick={() => setFormOpen(false)}>キャンセル</button>
               <button className="pd-btn-primary" onClick={save} disabled={!fAmount || Number(fAmount) <= 0}>{editingId ? "更新する" : "追加する"}</button>
@@ -3335,6 +3518,32 @@ function GlobalStyle() {
       .pd-budget-row-actions { display: flex; align-items: center; gap: 8px; }
       .pd-budget-amount { font-size: 14.5px; font-weight: 600; color: var(--pd-coral); font-family: 'Libre Franklin', sans-serif; }
       .pd-budget-amount.income { color: var(--pd-teal); }
+
+      .pd-budget-summary-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 22px; }
+      .pd-budget-summary-card { background: var(--pd-surface); border-radius: 14px; padding: 16px; display: flex; align-items: center; gap: 12px; }
+      .pd-budget-summary-icon { width: 40px; height: 40px; border-radius: 12px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; background: var(--pd-teal-soft); color: var(--pd-teal); }
+      .pd-budget-summary-icon.expense { background: var(--pd-coral-soft); color: var(--pd-coral); }
+      .pd-budget-summary-label { font-size: 12px; color: var(--pd-ink-muted); }
+      .pd-budget-summary-value { font-family: 'Libre Franklin', sans-serif; font-weight: 700; font-size: 19px; margin-top: 2px; color: var(--pd-ink); }
+      .pd-budget-summary-value.income { color: var(--pd-teal); }
+      .pd-budget-summary-value.expense { color: var(--pd-coral); }
+
+      .pd-budget-icon-badge { width: 36px; height: 36px; border-radius: 10px; background: var(--pd-coral-soft); color: var(--pd-coral); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+      .pd-budget-icon-badge.income { background: var(--pd-teal-soft); color: var(--pd-teal); }
+
+      .pd-budget-type-toggle { display: flex; gap: 8px; margin-bottom: 18px; }
+      .pd-budget-type-btn { flex: 1; display: flex; align-items: center; justify-content: center; gap: 7px; padding: 12px; border-radius: 12px; border: none; background: var(--pd-bg); color: var(--pd-ink-muted); font-size: 14px; font-weight: 500; cursor: pointer; font-family: 'Inter', sans-serif; }
+      .pd-budget-type-btn.expense.active { background: var(--pd-coral); color: #fff; }
+      .pd-budget-type-btn.income.active { background: var(--pd-teal); color: #fff; }
+
+      .pd-budget-amount-input { display: flex; align-items: center; gap: 6px; background: var(--pd-bg); border-radius: 12px; padding: 10px 16px; }
+      .pd-budget-amount-input span { font-size: 22px; font-weight: 700; color: var(--pd-ink-muted); font-family: 'Libre Franklin', sans-serif; }
+      .pd-budget-amount-input input { border: none; background: none; font-size: 26px; font-weight: 700; font-family: 'Libre Franklin', sans-serif; color: var(--pd-ink); width: 100%; padding: 0; }
+      .pd-budget-amount-input input:focus { outline: none; }
+
+      .pd-budget-category-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+      .pd-budget-category-btn { display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 12px 6px; border-radius: 12px; border: none; background: var(--pd-bg); color: var(--pd-ink-muted); font-size: 11.5px; cursor: pointer; font-family: 'Inter', sans-serif; }
+      .pd-budget-category-btn.active { font-weight: 600; }
 
       /* gantt */
       .pd-gantt-outer { display: flex; border: 1px solid var(--pd-line); border-radius: 12px; overflow: hidden; background: var(--pd-surface); }
