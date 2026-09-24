@@ -25,6 +25,7 @@ import {
   Cloud,
   GraduationCap,
   Image as ImageIcon,
+  ExternalLink,
 } from "lucide-react";
 import {
   LineChart,
@@ -1813,6 +1814,10 @@ function ClassesView({ classes, setClasses, diary, setDiary, assignments }) {
   const [editingId, setEditingId] = useState(null);
   const [fName, setFName] = useState("");
   const [fGrade, setFGrade] = useState("");
+  const [fOverview, setFOverview] = useState("");
+  const [fLinks, setFLinks] = useState([]);
+  const [newLinkLabel, setNewLinkLabel] = useState("");
+  const [newLinkUrl, setNewLinkUrl] = useState("");
   const [selectedId, setSelectedId] = useState(classes[0]?.id || null);
   const [scheduleEditMode, setScheduleEditMode] = useState(false);
 
@@ -1896,21 +1901,40 @@ function ClassesView({ classes, setClasses, diary, setDiary, assignments }) {
     setEditingId(null);
     setFName("");
     setFGrade("");
+    setFOverview("");
+    setFLinks([]);
+    setNewLinkLabel("");
+    setNewLinkUrl("");
     setFormOpen(true);
   }
   function openEdit(c) {
     setEditingId(c.id);
     setFName(c.name);
     setFGrade(c.grade || "");
+    setFOverview(c.overview || "");
+    setFLinks(c.links || []);
+    setNewLinkLabel("");
+    setNewLinkUrl("");
     setFormOpen(true);
+  }
+  function addLink() {
+    if (!newLinkUrl.trim()) return;
+    let url = newLinkUrl.trim();
+    if (!/^https?:\/\//i.test(url)) url = "https://" + url;
+    setFLinks((prev) => [...prev, { id: uid(), label: newLinkLabel.trim() || "リンク", url }]);
+    setNewLinkLabel("");
+    setNewLinkUrl("");
+  }
+  function removeLink(id) {
+    setFLinks((prev) => prev.filter((l) => l.id !== id));
   }
   function save() {
     if (!fName.trim()) return;
     if (editingId) {
-      setClasses((prev) => prev.map((c) => (c.id === editingId ? { ...c, name: fName.trim(), grade: fGrade || null } : c)));
+      setClasses((prev) => prev.map((c) => (c.id === editingId ? { ...c, name: fName.trim(), grade: fGrade || null, overview: fOverview.trim(), links: fLinks } : c)));
     } else {
       const color = CLASS_COLORS[classes.length % CLASS_COLORS.length];
-      const newClass = { id: uid(), name: fName.trim(), color, grade: fGrade || null, sessions: [] };
+      const newClass = { id: uid(), name: fName.trim(), color, grade: fGrade || null, overview: fOverview.trim(), links: fLinks, sessions: [] };
       setClasses((prev) => [...prev, newClass]);
       setSelectedId(newClass.id);
     }
@@ -2126,6 +2150,20 @@ function ClassesView({ classes, setClasses, diary, setDiary, assignments }) {
                   </div>
                 </div>
 
+                {(selected.overview || (selected.links && selected.links.length > 0)) && (
+                  <div className="pd-class-overview">
+                    {selected.overview && <div className="pd-class-overview-text">{selected.overview}</div>}
+                    {selected.links && selected.links.length > 0 && (
+                      <div className="pd-class-link-row">
+                        {selected.links.map((l) => (
+                          <a key={l.id} href={l.url} target="_blank" rel="noopener noreferrer" className="pd-class-link-chip">
+                            <ExternalLink size={12} /> {l.label}
+                          </a>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 <div className="pd-section-label" style={{ margin: "18px 0 10px" }}>関連する課題({relatedAssignments.length})</div>
                 {relatedAssignments.length === 0 ? (
@@ -2221,6 +2259,34 @@ function ClassesView({ classes, setClasses, diary, setDiary, assignments }) {
                   </button>
                 ))}
               </div>
+            </div>
+            <div className="pd-field">
+              <label htmlFor="cl-overview">概要・メモ(任意)</label>
+              <textarea id="cl-overview" rows={4} value={fOverview} onChange={(e) => setFOverview(e.target.value)} placeholder="授業の概要、担当教員、教室、評価方法など" />
+            </div>
+            <div className="pd-field">
+              <label>リンク(任意・シラバスなど)</label>
+              {fLinks.length > 0 && (
+                <div className="pd-link-edit-list">
+                  {fLinks.map((l) => (
+                    <div key={l.id} className="pd-link-edit-row">
+                      <ExternalLink size={13} />
+                      <span className="pd-link-edit-label">{l.label}</span>
+                      <button className="pd-icon-btn" onClick={() => removeLink(l.id)} aria-label="削除"><Trash2 size={13} /></button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="pd-row2">
+                <div className="pd-field" style={{ marginBottom: 0 }}>
+                  <input type="text" value={newLinkLabel} onChange={(e) => setNewLinkLabel(e.target.value)} placeholder="例: シラバス" />
+                </div>
+                <div className="pd-field" style={{ marginBottom: 0 }}>
+                  <input type="text" value={newLinkUrl} onChange={(e) => setNewLinkUrl(e.target.value)} placeholder="URL"
+                    onKeyDown={(e) => { if (e.key === "Enter") addLink(); }} />
+                </div>
+              </div>
+              <button className="pd-btn-secondary pd-small" style={{ marginTop: 8 }} onClick={addLink} disabled={!newLinkUrl.trim()}>+ リンクを追加</button>
             </div>
             <div className="pd-panel-actions">
               <button className="pd-btn-secondary" onClick={() => setFormOpen(false)}>キャンセル</button>
@@ -2927,6 +2993,15 @@ function GlobalStyle() {
       .pd-class-item .pd-dot { margin-top: 5px; }
       .pd-class-item-name { font-size: 13.5px; font-weight: 500; }
       .pd-grade-badge { display: inline-block; margin-left: 7px; font-size: 10px; font-weight: 700; color: var(--pd-purple); background: var(--pd-purple-soft); padding: 1px 7px; border-radius: 999px; vertical-align: middle; }
+
+      .pd-class-overview { background: var(--pd-surface); border-radius: 12px; padding: 14px 16px; margin-top: 14px; }
+      .pd-class-overview-text { font-size: 13.5px; line-height: 1.7; white-space: pre-wrap; color: var(--pd-ink); }
+      .pd-class-link-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+      .pd-class-link-chip { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 500; color: var(--pd-teal); background: var(--pd-teal-soft); padding: 5px 11px; border-radius: 999px; text-decoration: none; }
+      .pd-class-link-chip:hover { opacity: 0.85; }
+      .pd-link-edit-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+      .pd-link-edit-row { display: flex; align-items: center; gap: 6px; font-size: 12.5px; background: var(--pd-bg); padding: 6px 10px; border-radius: 8px; }
+      .pd-link-edit-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .pd-class-item-sub { font-size: 11px; color: var(--pd-ink-muted); margin-top: 2px; }
       .pd-class-detail { padding: 4px 8px; }
       .pd-class-detail-header { display: flex; align-items: flex-start; justify-content: space-between; }
