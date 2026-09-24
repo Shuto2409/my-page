@@ -3536,9 +3536,10 @@ function GlobalStyle() {
       .pd-budget-type-btn.expense.active { background: var(--pd-coral); color: #fff; }
       .pd-budget-type-btn.income.active { background: var(--pd-teal); color: #fff; }
 
-      .pd-budget-amount-input { display: flex; align-items: center; gap: 6px; background: var(--pd-bg); border-radius: 12px; padding: 10px 16px; }
-      .pd-budget-amount-input span { font-size: 22px; font-weight: 700; color: var(--pd-ink-muted); font-family: 'Libre Franklin', sans-serif; }
-      .pd-budget-amount-input input { border: none; background: none; font-size: 26px; font-weight: 700; font-family: 'Libre Franklin', sans-serif; color: var(--pd-ink); width: 100%; padding: 0; }
+      .pd-budget-amount-input { display: flex; align-items: center; gap: 6px; background: none; border-bottom: 2px solid var(--pd-line); padding: 6px 2px 10px; }
+      .pd-budget-amount-input:focus-within { border-bottom-color: var(--pd-teal); }
+      .pd-budget-amount-input span { font-size: 24px; font-weight: 700; color: var(--pd-ink-muted); font-family: 'Libre Franklin', sans-serif; }
+      .pd-budget-amount-input input { border: none; background: none; font-size: 30px; font-weight: 700; font-family: 'Libre Franklin', sans-serif; color: var(--pd-ink); width: 100%; padding: 0; }
       .pd-budget-amount-input input:focus { outline: none; }
 
       .pd-budget-category-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
