@@ -180,7 +180,50 @@ function generateOccurrences(startKey, type, endKey) {
 function usePersistedList(key) {
   const [items, setItems] = useState([]);
   const [loaded, setLoaded] = useState(false);
+  // false | "local" (could not save in this browser) | "cloud" (could not sync to the cloud)
   const [error, setError] = useState(false);
+
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+  // The exact JSON text we last confirmed as saved. Used to tell "nothing
+  // new to save" and "local edits that haven't reached the cloud yet" apart.
+  const lastSyncedRef = useRef(null);
+  const inFlightRef = useRef(false);
+  const queuedRef = useRef(null);
+
+  // Saves are serialized: if one is already running, only the newest pending
+  // version is kept and sent right after, so older data can never land last.
+  const pushToStorage = useCallback(
+    async (json) => {
+      if (inFlightRef.current) {
+        queuedRef.current = json;
+        return;
+      }
+      inFlightRef.current = true;
+      let current = json;
+      try {
+        while (current !== null) {
+          try {
+            const res = await window.storage.set(key, current, false);
+            if (res && res.cloudOk === false) {
+              setError("cloud");
+            } else {
+              lastSyncedRef.current = current;
+              setError(res && res.localOk === false ? "local" : false);
+            }
+          } catch (e) {
+            setError("local");
+          }
+          current = queuedRef.current;
+          queuedRef.current = null;
+          if (current !== null && current === lastSyncedRef.current) current = null;
+        }
+      } finally {
+        inFlightRef.current = false;
+      }
+    },
+    [key]
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -201,35 +244,41 @@ function usePersistedList(key) {
 
   useEffect(() => {
     if (!loaded) return;
-    (async () => {
-      try {
-        const res = await window.storage.set(key, JSON.stringify(items), false);
-        setError(!res);
-      } catch (e) {
-        setError(true);
-      }
-    })();
-  }, [items, loaded, key]);
+    const json = JSON.stringify(items);
+    if (json === lastSyncedRef.current) return;
+    pushToStorage(json);
+  }, [items, loaded, pushToStorage]);
 
-  // Near-real-time cross-device sync: when a cloud connection is configured,
-  // periodically re-check the cloud copy and adopt it if it changed
-  // elsewhere (e.g. edited on another device). Skipped entirely when
-  // running in local-only mode.
+  // Near-real-time cross-device sync. Every few seconds:
+  //  - if this device has changes that never reached the cloud, retry sending them
+  //    (and do NOT replace them with the older cloud copy);
+  //  - otherwise adopt the cloud copy if another device changed it.
   useEffect(() => {
     if (!loaded) return;
     if (!window.storage.getSyncConfig || !window.storage.getSyncConfig()) return;
     const interval = setInterval(async () => {
+      if (inFlightRef.current) return;
+      const localJson = JSON.stringify(itemsRef.current);
+      if (localJson !== lastSyncedRef.current) {
+        pushToStorage(localJson);
+        return;
+      }
       try {
         const res = await window.storage.get(key, false);
-        if (res && res.value) {
-          setItems((prev) => (JSON.stringify(prev) === res.value ? prev : JSON.parse(res.value)));
+        if (!res || !res.value) return;
+        // Skip if the user edited (or a save started) while we were fetching.
+        if (inFlightRef.current) return;
+        if (JSON.stringify(itemsRef.current) !== localJson) return;
+        if (res.value !== localJson) {
+          lastSyncedRef.current = res.value;
+          setItems(JSON.parse(res.value));
         }
       } catch (e) {
         // offline or transient error; try again next tick
       }
     }, 4000);
     return () => clearInterval(interval);
-  }, [loaded, key]);
+  }, [loaded, key, pushToStorage]);
 
   return [items, setItems, error];
 }
@@ -297,7 +346,8 @@ export default function PersonalDashboard() {
     document.body.style.background = isDark ? "#111318" : "#EFECE3";
   }, [isDark]);
 
-  const saveError = tasksErr || diaryErr || notesErr || assignErr || workTimesErr || classesErr || budgetErr;
+  const allSaveErrors = [tasksErr, diaryErr, notesErr, assignErr, workTimesErr, classesErr, budgetErr];
+  const saveErrorKind = allSaveErrors.includes("local") ? "local" : allSaveErrors.includes("cloud") ? "cloud" : null;
 
   function toggleTheme() {
     setTheme(isDark ? "light" : "dark");
@@ -439,7 +489,12 @@ export default function PersonalDashboard() {
           {activeView === "work" && workUnlocked && <WorkView tasks={tasks} setTasks={setTasks} workTimes={workTimes} setWorkTimes={setWorkTimes} />}
         </div>
       </div>
-      {saveError && <div className="pd-save-warning-fixed">保存に失敗しました。もう一度お試しください。</div>}
+      {saveErrorKind === "local" && (
+        <div className="pd-save-warning-fixed">この端末に保存できませんでした(容量がいっぱいかもしれません)。写真を減らすか、古い日記の写真を削除してください。</div>
+      )}
+      {saveErrorKind === "cloud" && (
+        <div className="pd-save-warning-fixed">クラウドへの同期に失敗しました。この端末には保存済みで、通信が戻ると自動で再送します。</div>
+      )}
       {syncOpen && <SyncPanel onClose={() => setSyncOpen(false)} />}
     </div>
   );
@@ -3772,7 +3827,7 @@ function GlobalStyle() {
       .pd-btn-secondary:hover { background: var(--pd-hover); }
       .pd-btn-secondary.pd-small { padding: 7px 11px; font-size: 12.5px; }
 
-      .pd-save-warning-fixed { position: absolute; bottom: 10px; right: 14px; font-size: 11.5px; color: var(--pd-coral); background: var(--pd-coral-soft); padding: 5px 10px; border-radius: 7px; }
+      .pd-save-warning-fixed { position: absolute; bottom: 10px; right: 14px; max-width: 320px; line-height: 1.5; font-size: 11.5px; color: var(--pd-coral); background: var(--pd-coral-soft); padding: 7px 12px; border-radius: 9px; z-index: 20; }
 
       .pd-applock-screen { min-height: 500px; display: flex; align-items: center; justify-content: center; padding: 24px; }
       .pd-applock-card { width: 100%; max-width: 320px; text-align: center; }
