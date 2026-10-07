@@ -62,15 +62,23 @@ const storage = {
     const sk = scopedKey(key, shared);
     const cfg = getConfig();
     if (cfg) {
+      let cloudValue = null;
       try {
         const res = await supaFetch(cfg, `dashboard_kv?key=eq.${encodeURIComponent(sk)}&select=value`);
         const rows = await res.json();
-        if (rows && rows.length > 0) {
-          localStorage.setItem(sk, rows[0].value);
-          return { key, value: rows[0].value, shared };
-        }
+        if (rows && rows.length > 0) cloudValue = rows[0].value;
       } catch (e) {
         // offline or misconfigured: fall through to the local cache below
+      }
+      if (cloudValue !== null) {
+        // Refresh the local cache, but never let a full browser storage
+        // (quota) stop us from returning the cloud copy we just fetched.
+        try {
+          localStorage.setItem(sk, cloudValue);
+        } catch (e) {
+          // ignore: cache only
+        }
+        return { key, value: cloudValue, shared };
       }
     }
     const raw = localStorage.getItem(sk);
@@ -78,10 +86,22 @@ const storage = {
     return { key, value: raw, shared };
   },
 
+  // Returns { localOk, cloudOk, cloudError }.
+  //   localOk:  saved to this browser's localStorage
+  //   cloudOk:  true/false when cloud sync is configured, null when it isn't
+  // Throws only when the data could not be saved anywhere at all.
   async set(key, value, shared = false) {
     const sk = scopedKey(key, shared);
-    localStorage.setItem(sk, value);
+    let localOk = true;
+    try {
+      localStorage.setItem(sk, value);
+    } catch (e) {
+      localOk = false; // typically the ~5MB browser storage limit
+    }
+
     const cfg = getConfig();
+    let cloudOk = null;
+    let cloudError = null;
     if (cfg) {
       try {
         await supaFetch(cfg, `dashboard_kv?on_conflict=key`, {
@@ -89,11 +109,17 @@ const storage = {
           headers: { Prefer: "resolution=merge-duplicates" },
           body: JSON.stringify([{ key: sk, value, updated_at: new Date().toISOString() }]),
         });
+        cloudOk = true;
       } catch (e) {
-        // offline: the local save above already succeeded
+        cloudOk = false;
+        cloudError = String((e && e.message) || e);
       }
     }
-    return { key, value, shared };
+
+    if (!localOk && cloudOk !== true) {
+      throw new Error("save failed (local storage full and cloud unavailable)");
+    }
+    return { key, value, shared, localOk, cloudOk, cloudError };
   },
 
   async delete(key, shared = false) {
