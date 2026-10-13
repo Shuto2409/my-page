@@ -41,6 +41,8 @@ import {
   ArrowUpCircle,
   ArrowDownCircle,
   Users,
+  ListTodo,
+  Flag,
 } from "lucide-react";
 import {
   LineChart,
@@ -63,6 +65,7 @@ const STORAGE_NOTES = "personal-dashboard:notes";
 const STORAGE_ASSIGN = "personal-dashboard:assignments";
 const STORAGE_CLASSES = "personal-dashboard:classes";
 const STORAGE_BUDGET = "personal-dashboard:budget";
+const STORAGE_TODOS = "personal-dashboard:todos";
 const STORAGE_GAKUBUN = "personal-dashboard:gakubun";
 const STORAGE_WORKTIMES = "personal-dashboard:worktimes";
 const STORAGE_WORKCODE = "personal-dashboard:workcode";
@@ -87,6 +90,7 @@ const HOUR_MARKS = Array.from({ length: 24 }, (_, i) => i);
 
 const NAV_ITEMS_BASE = [
   { key: "home", label: "ホーム", icon: Home, color: "var(--pd-teal)", soft: "var(--pd-teal-soft)" },
+  { key: "todo", label: "ToDo", icon: ListTodo, color: "var(--pd-blue)", soft: "var(--pd-blue-soft)" },
   { key: "diary", label: "日記", icon: BookOpen, color: "var(--pd-rose)", soft: "var(--pd-rose-soft)" },
   { key: "notes", label: "メモ", icon: NotebookPen, color: "var(--pd-purple)", soft: "var(--pd-purple-soft)" },
   { key: "assignments", label: "課題", icon: ListChecks, color: "var(--pd-coral)", soft: "var(--pd-coral-soft)" },
@@ -323,6 +327,7 @@ function usePersistedValue(key) {
 export default function PersonalDashboard() {
   const [view, setView] = useState("home");
   const [tasks, setTasks, tasksErr] = usePersistedList(STORAGE_TASKS);
+  const [todos, setTodos, todosErr] = usePersistedList(STORAGE_TODOS);
   const [diary, setDiary, diaryErr] = usePersistedList(STORAGE_DIARY);
   const [notes, setNotes, notesErr] = usePersistedList(STORAGE_NOTES);
   const [assignments, setAssignments, assignErr] = usePersistedList(STORAGE_ASSIGN);
@@ -346,7 +351,7 @@ export default function PersonalDashboard() {
     document.body.style.background = isDark ? "#111318" : "#EFECE3";
   }, [isDark]);
 
-  const allSaveErrors = [tasksErr, diaryErr, notesErr, assignErr, workTimesErr, classesErr, budgetErr];
+  const allSaveErrors = [todosErr, tasksErr, diaryErr, notesErr, assignErr, workTimesErr, classesErr, budgetErr];
   const saveErrorKind = allSaveErrors.includes("local") ? "local" : allSaveErrors.includes("cloud") ? "cloud" : null;
 
   function toggleTheme() {
@@ -476,6 +481,7 @@ export default function PersonalDashboard() {
               hasCode={!!workCode}
             />
           )}
+          {activeView === "todo" && <TodoView todos={todos} setTodos={setTodos} />}
           {activeView === "diary" && <DiaryView diary={diary} setDiary={setDiary} classes={classes} />}
           {activeView === "notes" && <NotesView notes={notes} setNotes={setNotes} />}
           {activeView === "assignments" && (
@@ -1609,6 +1615,182 @@ function NotesView({ notes, setNotes }) {
               <button className="pd-btn-primary" onClick={save} disabled={!fTitle.trim() && !fContent.trim()}>保存する</button>
             </div>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ============================= TODO ============================= */
+
+const TODO_PRIORITIES = [
+  { key: "high", label: "高", color: "var(--pd-coral)", soft: "var(--pd-coral-soft)" },
+  { key: "mid", label: "中", color: "var(--pd-amber)", soft: "var(--pd-amber-soft)" },
+  { key: "low", label: "低", color: "var(--pd-teal)", soft: "var(--pd-teal-soft)" },
+];
+
+function TodoView({ todos, setTodos }) {
+  const [text, setText] = useState("");
+  const [priority, setPriority] = useState("mid");
+  const [due, setDue] = useState("");
+  const [filter, setFilter] = useState("open");
+  const [editingId, setEditingId] = useState(null);
+  const [editText, setEditText] = useState("");
+
+  const todayKey = toDateKey(new Date());
+  const prioOrder = { high: 0, mid: 1, low: 2 };
+
+  const openItems = useMemo(() => {
+    return todos
+      .filter((t) => !t.done)
+      .sort((a, b) => {
+        const ad = a.due || "9999-99-99";
+        const bd = b.due || "9999-99-99";
+        if (ad !== bd) return ad < bd ? -1 : 1;
+        if (a.priority !== b.priority) return prioOrder[a.priority] - prioOrder[b.priority];
+        return (a.createdAt || 0) - (b.createdAt || 0);
+      });
+  }, [todos]);
+  const doneItems = useMemo(() => todos.filter((t) => t.done).sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0)), [todos]);
+  const shown = filter === "open" ? openItems : doneItems;
+  const overdueCount = openItems.filter((t) => t.due && t.due < todayKey).length;
+
+  function add() {
+    const title = text.trim();
+    if (!title) return;
+    setTodos((prev) => [...prev, { id: uid(), title, priority, due: due || "", done: false, createdAt: Date.now() }]);
+    setText("");
+    setDue("");
+  }
+  function toggle(id) {
+    setTodos((prev) => prev.map((t) => (t.id === id ? { ...t, done: !t.done, doneAt: !t.done ? Date.now() : null } : t)));
+  }
+  function remove(id) {
+    setTodos((prev) => prev.filter((t) => t.id !== id));
+  }
+  function startEdit(t) {
+    setEditingId(t.id);
+    setEditText(t.title);
+  }
+  function saveEdit() {
+    const title = editText.trim();
+    if (title) setTodos((prev) => prev.map((t) => (t.id === editingId ? { ...t, title } : t)));
+    setEditingId(null);
+  }
+  function cyclePriority(id) {
+    setTodos((prev) => prev.map((t) => {
+      if (t.id !== id) return t;
+      const i = TODO_PRIORITIES.findIndex((p) => p.key === t.priority);
+      return { ...t, priority: TODO_PRIORITIES[(i + 1) % TODO_PRIORITIES.length].key };
+    }));
+  }
+  function setItemDue(id, value) {
+    setTodos((prev) => prev.map((t) => (t.id === id ? { ...t, due: value } : t)));
+  }
+  function clearDone() {
+    setTodos((prev) => prev.filter((t) => !t.done));
+  }
+
+  function dueLabel(t) {
+    if (!t.due) return null;
+    const d = daysUntil(t.due);
+    if (t.done) return { text: formatDateLabel(t.due), cls: "" };
+    if (d < 0) return { text: `${-d}日超過`, cls: "over" };
+    if (d === 0) return { text: "今日まで", cls: "soon" };
+    if (d === 1) return { text: "明日まで", cls: "soon" };
+    return { text: formatDateLabel(t.due), cls: "" };
+  }
+
+  return (
+    <div className="pd-view">
+      <div className="pd-view-header">
+        <div className="pd-view-title">ToDo</div>
+        {overdueCount > 0 && <div className="pd-todo-alert"><AlertCircle size={14} /> 期限切れ {overdueCount}件</div>}
+      </div>
+
+      <div className="pd-todo-add">
+        <input
+          type="text"
+          className="pd-todo-input"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing) add(); }}
+          placeholder="やることを入力して Enter"
+          aria-label="新しいToDo"
+        />
+        <div className="pd-todo-add-row">
+          <div className="pd-todo-prio-group">
+            {TODO_PRIORITIES.map((p) => (
+              <button
+                key={p.key}
+                type="button"
+                className={"pd-todo-prio-btn" + (priority === p.key ? " active" : "")}
+                style={priority === p.key ? { background: p.color, color: "#fff" } : { background: p.soft, color: p.color }}
+                onClick={() => setPriority(p.key)}
+              >
+                <Flag size={12} /> {p.label}
+              </button>
+            ))}
+          </div>
+          <label className="pd-todo-due-label">
+            期限
+            <input type="date" value={due} onChange={(e) => setDue(e.target.value)} />
+          </label>
+          <button className="pd-btn-primary" onClick={add} disabled={!text.trim()}>追加</button>
+        </div>
+      </div>
+
+      <div className="pd-todo-tabs">
+        <button className={"pd-todo-tab" + (filter === "open" ? " active" : "")} onClick={() => setFilter("open")}>未完了 {openItems.length}</button>
+        <button className={"pd-todo-tab" + (filter === "done" ? " active" : "")} onClick={() => setFilter("done")}>完了 {doneItems.length}</button>
+        {filter === "done" && doneItems.length > 0 && (
+          <button className="pd-todo-clear" onClick={clearDone}><Trash2 size={13} /> 完了を全て削除</button>
+        )}
+      </div>
+
+      {shown.length === 0 ? (
+        <div className="pd-empty-note">{filter === "open" ? "未完了のToDoはありません 🎉" : "完了したToDoはまだありません"}</div>
+      ) : (
+        <div className="pd-todo-list">
+          {shown.map((t) => {
+            const p = TODO_PRIORITIES.find((x) => x.key === t.priority) || TODO_PRIORITIES[1];
+            const dl = dueLabel(t);
+            return (
+              <div key={t.id} className={"pd-todo-item" + (t.done ? " done" : "")} style={{ borderLeftColor: p.color }}>
+                <button className={"pd-todo-check" + (t.done ? " checked" : "")} onClick={() => toggle(t.id)} aria-label={t.done ? "未完了に戻す" : "完了にする"}>
+                  {t.done && <Check size={13} />}
+                </button>
+                <div className="pd-todo-body">
+                  {editingId === t.id ? (
+                    <input
+                      type="text"
+                      className="pd-todo-edit"
+                      value={editText}
+                      onChange={(e) => setEditText(e.target.value)}
+                      onBlur={saveEdit}
+                      onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing) saveEdit(); if (e.key === "Escape") setEditingId(null); }}
+                      autoFocus
+                    />
+                  ) : (
+                    <div className="pd-todo-title" onClick={() => !t.done && startEdit(t)}>{t.title}</div>
+                  )}
+                  <div className="pd-todo-meta">
+                    <button className="pd-todo-chip" style={{ background: p.soft, color: p.color }} onClick={() => !t.done && cyclePriority(t.id)} title="クリックで優先度を変更">
+                      優先度 {p.label}
+                    </button>
+                    {dl && <span className={"pd-todo-due " + dl.cls}>{dl.text}</span>}
+                    {!t.done && (
+                      <label className="pd-todo-setdue" title="期限を設定">
+                        <Clock size={12} />
+                        <input type="date" value={t.due || ""} onChange={(e) => setItemDue(t.id, e.target.value)} />
+                      </label>
+                    )}
+                  </div>
+                </div>
+                <button className="pd-icon-btn" onClick={() => remove(t.id)} aria-label="削除"><Trash2 size={14} /></button>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
@@ -3844,6 +4026,36 @@ function GlobalStyle() {
       .pd-sync-connected { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--pd-line); }
       .pd-qr-block { display: flex; flex-direction: column; align-items: center; text-align: center; background: var(--pd-bg); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
       .pd-qr-image { width: 180px; height: 180px; border-radius: 8px; background: white; padding: 8px; }
+
+      .pd-todo-alert { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; color: var(--pd-coral); background: var(--pd-coral-soft); padding: 5px 10px; border-radius: 999px; }
+      .pd-todo-add { background: var(--pd-surface); border-radius: 14px; padding: 12px; display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+      .pd-todo-input { width: 100%; border: none; background: var(--pd-bg); color: var(--pd-ink); border-radius: 10px; padding: 12px 14px; font-size: 15px; font-family: 'Inter', sans-serif; box-sizing: border-box; }
+      .pd-todo-input:focus { outline: 2px solid var(--pd-blue); outline-offset: 1px; }
+      .pd-todo-add-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+      .pd-todo-prio-group { display: flex; gap: 6px; }
+      .pd-todo-prio-btn { border: none; border-radius: 999px; padding: 6px 11px; font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; cursor: pointer; font-family: inherit; }
+      .pd-todo-due-label { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--pd-ink-muted); margin-left: auto; }
+      .pd-todo-due-label input, .pd-todo-setdue input { border: none; background: var(--pd-bg); color: var(--pd-ink); border-radius: 7px; padding: 5px 7px; font-size: 12px; font-family: inherit; }
+      .pd-todo-tabs { display: flex; align-items: center; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
+      .pd-todo-tab { border: none; background: transparent; color: var(--pd-ink-muted); padding: 7px 14px; border-radius: 999px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; }
+      .pd-todo-tab.active { background: var(--pd-blue-soft); color: var(--pd-blue); }
+      .pd-todo-clear { margin-left: auto; border: none; background: transparent; color: var(--pd-coral); font-size: 12px; display: inline-flex; align-items: center; gap: 4px; cursor: pointer; font-family: inherit; }
+      .pd-todo-list { display: flex; flex-direction: column; gap: 8px; }
+      .pd-todo-item { display: flex; align-items: flex-start; gap: 12px; background: var(--pd-surface); border-radius: 12px; border-left: 4px solid var(--pd-blue); padding: 12px 12px 12px 14px; }
+      .pd-todo-item.done { opacity: 0.6; }
+      .pd-todo-check { width: 22px; height: 22px; flex-shrink: 0; border-radius: 50%; border: 2px solid var(--pd-line); background: transparent; color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; margin-top: 1px; padding: 0; }
+      .pd-todo-check:hover { border-color: var(--pd-blue); }
+      .pd-todo-check.checked { background: var(--pd-blue); border-color: var(--pd-blue); }
+      .pd-todo-body { flex: 1; min-width: 0; }
+      .pd-todo-title { font-size: 15px; line-height: 1.5; color: var(--pd-ink); word-break: break-word; cursor: text; }
+      .pd-todo-item.done .pd-todo-title { text-decoration: line-through; cursor: default; }
+      .pd-todo-edit { width: 100%; border: none; background: var(--pd-bg); color: var(--pd-ink); border-radius: 8px; padding: 6px 9px; font-size: 15px; font-family: inherit; box-sizing: border-box; }
+      .pd-todo-meta { display: flex; align-items: center; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+      .pd-todo-chip { border: none; border-radius: 999px; padding: 3px 9px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: inherit; }
+      .pd-todo-due { font-size: 11.5px; color: var(--pd-ink-muted); }
+      .pd-todo-due.soon { color: var(--pd-amber); font-weight: 600; }
+      .pd-todo-due.over { color: var(--pd-coral); font-weight: 700; }
+      .pd-todo-setdue { display: inline-flex; align-items: center; gap: 4px; color: var(--pd-ink-muted); }
     `}</style>
   );
 }
